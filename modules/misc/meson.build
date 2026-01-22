@@ -86,17 +86,18 @@ if gnutls_dep.found()
 
     gnutls_darwin_deps = []
     if host_system == 'darwin'
-        # In theory these deps should be in the gnutls .pc file,
-        # apparently they are missing there.
         gnutls_darwin_deps = [corefoundation_dep, security_dep]
     endif
+
+    ws2_32 = cc.find_library('ws2_32', required: false)
 
     vlc_modules += {
         'name' : 'gnutls',
         'sources' : files('gnutls.c'),
-        'dependencies' : [gnutls_dep, gnutls_darwin_deps]
+        'dependencies' : [gnutls_dep, ws2_32] + gnutls_darwin_deps
     }
 endif
+
 
 # IOKit inhibit module (macOS only)
 if have_osx
