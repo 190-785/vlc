@@ -245,9 +245,13 @@ static int SSHSessionInit( stream_t *p_access, const char *psz_host, int i_port 
         goto error;
 
     int i_ret;
+    #if LIBSSH2_VERSION_NUM >= 0x010208
+    while( ( i_ret = libssh2_session_handshake( p_sys->ssh_session, p_sys->i_socket ) )
+           == LIBSSH2_ERROR_EAGAIN );
+    #else
     while( ( i_ret = libssh2_session_startup( p_sys->ssh_session, p_sys->i_socket ) )
            == LIBSSH2_ERROR_EAGAIN );
-
+    #endif            
     if( i_ret != 0 )
         goto error;
 
@@ -335,7 +339,6 @@ static int Open( vlc_object_t* p_this )
                 msg_Err( p_access, "Failure reading known_hosts '%s'", psz_knownhosts_file );
             free( psz_knownhosts_file );
         }
-        free( psz_home );
     }
 
     const char *fingerprint = libssh2_session_hostkey( p_sys->ssh_session, &i_len, &i_type );
@@ -563,6 +566,7 @@ static int Open( vlc_object_t* p_this )
     i_result = VLC_SUCCESS;
 
 error:
+    free( psz_home );
     free( psz_session_username );
     free( psz_path );
     vlc_credential_clean( &credential );

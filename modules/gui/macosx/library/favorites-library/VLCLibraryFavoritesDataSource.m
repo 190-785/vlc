@@ -46,6 +46,7 @@ NSString * const VLCLibraryFavoritesDataSourceDisplayedCollectionChangedNotifica
 
 @interface VLCLibraryFavoritesDataSource ()
 {
+    NSArray<VLCMediaLibraryMediaItem *> *_allFavoritesArray;
     NSArray<VLCMediaLibraryMediaItem *> *_favoriteVideoMediaArray;
     NSArray<VLCMediaLibraryMediaItem *> *_favoriteAudioMediaArray;
     NSArray<VLCMediaLibraryAlbum *> *_favoriteAlbumsArray;
@@ -73,6 +74,8 @@ NSString * const VLCLibraryFavoritesDataSourceDisplayedCollectionChangedNotifica
 - (NSArray<id<VLCMediaLibraryItemProtocol>> *)arrayForSection:(VLCLibraryFavoritesSection)section
 {
     switch (section) {
+        case VLCLibraryFavoritesSectionAllFavorites:
+            return _allFavoritesArray;
         case VLCLibraryFavoritesSectionVideoMedia:
             return _favoriteVideoMediaArray;
         case VLCLibraryFavoritesSectionAudioMedia:
@@ -91,6 +94,8 @@ NSString * const VLCLibraryFavoritesDataSourceDisplayedCollectionChangedNotifica
 - (NSString *)titleForSection:(VLCLibraryFavoritesSection)section
 {
     switch (section) {
+        case VLCLibraryFavoritesSectionAllFavorites:
+            return _NS("All Favorites");
         case VLCLibraryFavoritesSectionVideoMedia:
             return _NS("Favorite Videos");
         case VLCLibraryFavoritesSectionAudioMedia:
@@ -109,6 +114,8 @@ NSString * const VLCLibraryFavoritesDataSourceDisplayedCollectionChangedNotifica
 - (VLCMediaLibraryParentGroupType)parentTypeForSection:(VLCLibraryFavoritesSection)section
 {
     switch (section) {
+        case VLCLibraryFavoritesSectionAllFavorites:
+            return VLCMediaLibraryParentGroupTypeAllFavorites;
         case VLCLibraryFavoritesSectionVideoMedia:
             return VLCMediaLibraryParentGroupTypeVideoLibrary;
         case VLCLibraryFavoritesSectionAudioMedia:
@@ -215,27 +222,7 @@ NSString * const VLCLibraryFavoritesDataSourceDisplayedCollectionChangedNotifica
 
 #pragma mark - Notification handlers
 
-- (void)libraryModelFavoriteVideoMediaListReset:(NSNotification * const)notification
-{
-    [self reloadData];
-}
-
-- (void)libraryModelFavoriteAudioMediaListReset:(NSNotification * const)notification
-{
-    [self reloadData];
-}
-
-- (void)libraryModelFavoriteAlbumsListReset:(NSNotification * const)notification
-{
-    [self reloadData];
-}
-
-- (void)libraryModelFavoriteArtistsListReset:(NSNotification * const)notification
-{
-    [self reloadData];
-}
-
-- (void)libraryModelFavoriteGenresListReset:(NSNotification * const)notification
+- (void)libraryModelFavoriteListReset:(NSNotification * const)notification
 {
     [self reloadData];
 }
@@ -247,23 +234,23 @@ NSString * const VLCLibraryFavoritesDataSourceDisplayedCollectionChangedNotifica
     NSNotificationCenter * const notificationCenter = NSNotificationCenter.defaultCenter;
 
     [notificationCenter addObserver:self
-                           selector:@selector(libraryModelFavoriteVideoMediaListReset:)
+                           selector:@selector(libraryModelFavoriteListReset:)
                                name:VLCLibraryModelFavoriteVideoMediaListReset
                              object:nil];
     [notificationCenter addObserver:self
-                           selector:@selector(libraryModelFavoriteAudioMediaListReset:)
+                           selector:@selector(libraryModelFavoriteListReset:)
                                name:VLCLibraryModelFavoriteAudioMediaListReset
                              object:nil];
     [notificationCenter addObserver:self
-                           selector:@selector(libraryModelFavoriteAlbumsListReset:)
+                           selector:@selector(libraryModelFavoriteListReset:)
                                name:VLCLibraryModelFavoriteAlbumsListReset
                              object:nil];
     [notificationCenter addObserver:self
-                           selector:@selector(libraryModelFavoriteArtistsListReset:)
+                           selector:@selector(libraryModelFavoriteListReset:)
                                name:VLCLibraryModelFavoriteArtistsListReset
                              object:nil];
     [notificationCenter addObserver:self
-                           selector:@selector(libraryModelFavoriteGenresListReset:)
+                           selector:@selector(libraryModelFavoriteListReset:)
                                name:VLCLibraryModelFavoriteGenresListReset
                              object:nil];
 
@@ -288,13 +275,19 @@ NSString * const VLCLibraryFavoritesDataSourceDisplayedCollectionChangedNotifica
     _favoriteAlbumsArray = [self.libraryModel listOfFavoriteAlbums];
     _favoriteArtistsArray = [self.libraryModel listOfFavoriteArtists];
     _favoriteGenresArray = [self.libraryModel listOfFavoriteGenres];
+    _allFavoritesArray = [self.libraryModel listOfLibraryItemsOfParentType:VLCMediaLibraryParentGroupTypeAllFavorites];
 
     [self updateVisibleSectionMapping];
     
     [_flattenedRowMappings removeAllObjects];
 
+    const NSInteger selectedRow = self.masterTableView.selectedRow;
+
     if (self.masterTableView.dataSource == self) {
         [self.masterTableView reloadData];
+        if (selectedRow != -1 && selectedRow < [self.masterTableView numberOfRows]) {
+            [self.masterTableView selectRowIndexes:[NSIndexSet indexSetWithIndex:selectedRow] byExtendingSelection:NO];
+        }
     }
     if (self.detailTableView.dataSource == self) {
         [self.detailTableView reloadData];
@@ -576,6 +569,11 @@ viewForSupplementaryElementOfKind:(NSCollectionViewSupplementaryElementKind)kind
     }
     
     return VLCLibraryCollectionViewMediaItemSupplementaryDetailViewKind;
+}
+
+- (NSArray<VLCMediaLibraryMediaItem *> *)allFavoritesArray
+{
+    return _allFavoritesArray;
 }
 
 @end

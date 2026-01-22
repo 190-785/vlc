@@ -214,6 +214,7 @@ typedef struct
     vlc_tick_t  i_pts_delay;
     vlc_tick_t  i_tracks_pts_delay;
     vlc_tick_t  i_pts_jitter;
+    vlc_tick_t  i_last_pts_jitter;
     int         i_cr_average;
     float       rate;
 
@@ -259,13 +260,15 @@ static void EsOutDeleteInfoEs(es_out_sys_t *, es_out_id_t *es);
 static void EsOutUnselectEs(es_out_sys_t *out, es_out_id_t *es, bool b_update);
 static void EsOutDecoderChangeDelay(es_out_sys_t *out, es_out_id_t *p_es);
 static void EsOutDecodersChangePause(es_out_sys_t *out, bool b_paused, vlc_tick_t i_date);
-static void EsOutChangePosition(es_out_sys_t *out, bool b_flush, es_out_id_t *p_next_frame_es);
+static void EsOutChangePosition(es_out_sys_t *out, es_out_id_t *p_next_frame_es);
 static void EsOutProgramChangePause(es_out_sys_t *out, bool b_paused, vlc_tick_t i_date);
 static void EsOutProgramsChangeRate(es_out_sys_t *out);
 static void EsOutDecodersStopBuffering(es_out_sys_t *out, bool b_forced);
 static void EsOutDrainDecoder(es_out_sys_t *p_sys, es_out_id_t *es, bool wait);
 static void EsOutGlobalMeta(es_out_sys_t *p_out, const vlc_meta_t *p_meta);
 static void EsOutMeta(es_out_sys_t *p_out, const vlc_meta_t *p_meta, const vlc_meta_t *p_progmeta);
+static void EsOutSetJitter(es_out_sys_t *p_sys, vlc_tick_t i_pts_delay,
+                           vlc_tick_t i_pts_jitter, vlc_tick_t i_cr_average);
 static int EsOutEsUpdateFmt(es_out_id_t *es, const es_format_t *fmt);
 static int EsOutPrivControlLocked(es_out_sys_t *out, input_source_t *, int i_query, ...);
 static int EsOutControlLocked(es_out_sys_t *out, input_source_t *, int i_query, ...);
@@ -412,6 +415,25 @@ decoder_on_vout_stopped(vlc_input_decoder_t *decoder, vout_thread_t *vout, void 
 }
 
 static void
+decoder_on_output_paused(vlc_input_decoder_t *decoder, bool paused,
+                         vlc_tick_t paused_date, void *userdata)
+{
+    (void) decoder;
+    es_out_id_t *id = userdata;
+    struct vlc_input_es_out *out = id->out;
+    es_out_sys_t *p_sys = PRIV(&out->out);
+
+    struct vlc_input_event_output_state event = {
+        .action = paused ? VLC_INPUT_EVENT_OUTPUT_STATE_PAUSED
+                         : VLC_INPUT_EVENT_OUTPUT_STATE_RESUMED,
+        .paused_date = paused_date,
+        .id = &id->id,
+    };
+
+    input_SendEventOutputState(p_sys->p_input, &event);
+}
+
+static void
 decoder_on_thumbnail_ready(vlc_input_decoder_t *decoder, picture_t *pic, void *userdata)
 {
     (void) decoder;
@@ -483,6 +505,92 @@ decoder_on_new_audio_stats(vlc_input_decoder_t *decoder, unsigned decoded, unsig
                               memory_order_relaxed);
 }
 
+static void
+decoder_frame_next_status(vlc_input_decoder_t *decoder, int status,
+                              void *userdata)
+{
+    (void) decoder;
+
+    es_out_id_t *id = userdata;
+    struct vlc_input_es_out *out = id->out;
+    es_out_sys_t *p_sys = container_of(out, es_out_sys_t, out);
+
+    if (!p_sys->p_input)
+        return;
+
+    const struct vlc_input_event event = {
+        .type = INPUT_EVENT_FRAME_NEXT_STATUS,
+        .frame_next_status = status,
+    };
+
+    input_SendEvent(p_sys->p_input, &event);
+}
+
+static void
+decoder_frame_next_need_data(vlc_input_decoder_t *decoder, bool need_data,
+                             void *userdata)
+{
+    (void) decoder;
+
+    es_out_id_t *id = userdata;
+    struct vlc_input_es_out *out = id->out;
+    es_out_sys_t *p_sys = container_of(out, es_out_sys_t, out);
+
+    if (!p_sys->p_input)
+        return;
+
+    vlc_value_t val = { .b_bool = need_data };
+    input_ControlPushHelper(p_sys->p_input, INPUT_CONTROL_NEED_DATA_FRAME_NEXT,
+                            &val);
+}
+
+static void
+decoder_frame_previous_status(vlc_input_decoder_t *decoder, int status,
+                              void *userdata)
+{
+    (void) decoder;
+
+    es_out_id_t *id = userdata;
+    struct vlc_input_es_out *out = id->out;
+    es_out_sys_t *p_sys = container_of(out, es_out_sys_t, out);
+
+    if (!p_sys->p_input)
+        return;
+
+    const struct vlc_input_event event = {
+        .type = INPUT_EVENT_FRAME_PREVIOUS_STATUS,
+        .frame_previous_status = status,
+    };
+
+    input_SendEvent(p_sys->p_input, &event);
+}
+
+static void
+decoder_frame_previous_seek(vlc_input_decoder_t *decoder, vlc_tick_t pts,
+                            unsigned frame_rate, unsigned frame_rate_base,
+                            int steps, bool failed, void *userdata)
+{
+    (void) decoder;
+
+    es_out_id_t *id = userdata;
+    struct vlc_input_es_out *out = id->out;
+    es_out_sys_t *p_sys = container_of(out, es_out_sys_t, out);
+
+    if (!p_sys->p_input)
+        return;
+
+    const input_control_param_t param = {
+        .frame_previous_seek = {
+            .pts = pts,
+            .frame_rate = frame_rate,
+            .frame_rate_base = frame_rate_base,
+            .steps = steps,
+            .failed = failed,
+        },
+    };
+    input_ControlPush(p_sys->p_input, INPUT_CONTROL_SEEK_FRAME_PREVIOUS, &param);
+}
+
 static int
 decoder_get_attachments(vlc_input_decoder_t *decoder,
                         input_attachment_t ***ppp_attachment,
@@ -503,9 +611,14 @@ decoder_get_attachments(vlc_input_decoder_t *decoder,
 static const struct vlc_input_decoder_callbacks decoder_cbs = {
     .on_vout_started = decoder_on_vout_started,
     .on_vout_stopped = decoder_on_vout_stopped,
+    .on_output_paused = decoder_on_output_paused,
     .on_thumbnail_ready = decoder_on_thumbnail_ready,
     .on_new_video_stats = decoder_on_new_video_stats,
     .on_new_audio_stats = decoder_on_new_audio_stats,
+    .frame_next_status = decoder_frame_next_status,
+    .frame_next_need_data = decoder_frame_next_need_data,
+    .frame_previous_status = decoder_frame_previous_status,
+    .frame_previous_seek = decoder_frame_previous_seek,
     .get_attachments = decoder_get_attachments,
 };
 
@@ -553,6 +666,7 @@ static void EsOutPropsInit( es_out_es_props_t *p_props,
     p_props->i_channel = (psz_trackvar) ? var_GetInteger( p_input, psz_trackvar ): -1;
     p_props->i_demux_id = -1;
     p_props->p_main_es = NULL;
+    p_props->ppsz_language = NULL;
 
     if( input_type != INPUT_TYPE_PREPARSING && psz_langvar )
     {
@@ -879,12 +993,29 @@ static int EsOutSetRecord(es_out_sys_t *p_sys, bool b_record, const char *dir_pa
     return VLC_SUCCESS;
 }
 
-static void EsOutStopNextFrame(es_out_sys_t *p_sys)
+static es_out_id_t *EsOutStopNextFrame(es_out_sys_t *p_sys)
+{
+    if (p_sys->p_next_frame_es == NULL || p_sys->p_next_frame_es->p_dec == NULL)
+        return NULL;
+    vlc_input_decoder_StopFrameNext(p_sys->p_next_frame_es->p_dec);
+    es_out_id_t *noflush_es = p_sys->p_next_frame_es;
+    p_sys->p_next_frame_es = NULL;
+    if (p_sys->i_last_pts_jitter != p_sys->i_pts_jitter)
+    {
+        /* Safe to change jitter because this function is always followed by
+         * EsOutChangePosition() */
+        EsOutSetJitter(p_sys, p_sys->i_pts_delay, p_sys->i_last_pts_jitter,
+                       p_sys->i_cr_average);
+        p_sys->i_last_pts_jitter = VLC_TICK_INVALID;
+    }
+    return noflush_es;
+}
+
+static void EsOutResumeFromNextFrame(es_out_sys_t *p_sys)
 {
     assert( p_sys->p_next_frame_es != NULL );
     /* Flush every ES except the video one */
-    EsOutChangePosition(p_sys, true, p_sys->p_next_frame_es );
-    p_sys->p_next_frame_es = NULL;
+    EsOutChangePosition(p_sys, EsOutStopNextFrame(p_sys));
 }
 
 static void EsOutChangePause(es_out_sys_t *p_sys, bool b_paused, vlc_tick_t i_date)
@@ -898,7 +1029,7 @@ static void EsOutChangePause(es_out_sys_t *p_sys, bool b_paused, vlc_tick_t i_da
     else
     {
         if( p_sys->p_next_frame_es != NULL )
-            EsOutStopNextFrame(p_sys);
+            EsOutResumeFromNextFrame(p_sys);
 
         if( p_sys->i_buffering_extra_initial > 0 )
         {
@@ -941,7 +1072,7 @@ static void EsOutChangeRate(es_out_sys_t *p_sys, float rate)
             vlc_input_decoder_ChangeRate( es->p_dec, rate );
 }
 
-static void EsOutChangePosition(es_out_sys_t *p_sys, bool b_flush,
+static void EsOutChangePosition(es_out_sys_t *p_sys,
                                 es_out_id_t *p_next_frame_es)
 {
     es_out_id_t *p_es;
@@ -952,7 +1083,7 @@ static void EsOutChangePosition(es_out_sys_t *p_sys, bool b_flush,
     {
         if( p_es->p_dec != NULL )
         {
-            if( b_flush && p_es != p_next_frame_es )
+            if( p_es != p_next_frame_es )
                 vlc_input_decoder_Flush( p_es->p_dec );
             if( !p_sys->b_buffering )
             {
@@ -1021,7 +1152,8 @@ static void EsOutDecodersStopBuffering(es_out_sys_t *p_sys, bool b_forced)
      * increase the buffering duration. */
     if (i_stream_duration < 0)
     {
-        EsOutChangePosition(p_sys, true, NULL);
+        EsOutStopNextFrame(p_sys);
+        EsOutChangePosition(p_sys, NULL);
         return;
     }
 
@@ -1211,7 +1343,7 @@ static void EsOutProgramsChangeRate(es_out_sys_t *p_sys)
         input_clock_ChangeRate(pgrm->p_input_clock, p_sys->rate);
 }
 
-static void EsOutFrameNext(es_out_sys_t *p_sys)
+static void EsOutFrameNext(es_out_sys_t *p_sys, bool previous)
 {
     assert( p_sys->b_paused );
 
@@ -1234,7 +1366,10 @@ static void EsOutFrameNext(es_out_sys_t *p_sys)
         }
     }
 
-    vlc_input_decoder_FrameNext( p_sys->p_next_frame_es->p_dec );
+    if( previous )
+        vlc_input_decoder_FramePrevious( p_sys->p_next_frame_es->p_dec );
+    else
+        vlc_input_decoder_FrameNext( p_sys->p_next_frame_es->p_dec );
 }
 static vlc_tick_t EsOutGetBuffering(es_out_sys_t *p_sys)
 {
@@ -2576,7 +2711,7 @@ static void EsOutUnselectEs(es_out_sys_t *p_sys, es_out_id_t *es, bool b_update)
     }
 
     if( p_sys->p_next_frame_es == es )
-        EsOutStopNextFrame(p_sys);
+        EsOutResumeFromNextFrame(p_sys);
 
     EsOutDestroyDecoder(p_sys, es);
     es->forced = false;
@@ -3222,6 +3357,36 @@ static vlc_tick_t EsOutGetTracksDelay(es_out_sys_t *p_sys)
     return -tracks_delay;
 }
 
+static void EsOutSetJitter(es_out_sys_t *p_sys, vlc_tick_t i_pts_delay,
+                           vlc_tick_t i_pts_jitter, vlc_tick_t i_cr_average)
+{
+    const vlc_tick_t i_tracks_pts_delay = EsOutGetTracksDelay(p_sys);
+    bool b_change_clock =
+    i_pts_delay != p_sys->i_pts_delay ||
+    i_pts_jitter != p_sys->i_pts_jitter ||
+    i_cr_average != p_sys->i_cr_average ||
+    i_tracks_pts_delay != p_sys->i_tracks_pts_delay;
+
+    assert( i_pts_jitter >= 0 );
+    p_sys->i_pts_delay  = i_pts_delay;
+    p_sys->i_pts_jitter = i_pts_jitter;
+    p_sys->i_cr_average = i_cr_average;
+    p_sys->i_tracks_pts_delay = i_tracks_pts_delay;
+
+    if (!b_change_clock)
+        return;
+
+    i_pts_delay += i_pts_jitter + i_tracks_pts_delay;
+    es_out_pgrm_t *pgrm;
+    vlc_list_foreach(pgrm, &p_sys->programs, node)
+    {
+        input_clock_SetJitter(pgrm->p_input_clock, i_pts_delay, i_cr_average);
+        vlc_clock_main_Lock(pgrm->clocks.main);
+        vlc_clock_main_SetInputDejitter(pgrm->clocks.main, i_pts_delay);
+        vlc_clock_main_Unlock(pgrm->clocks.main);
+    }
+}
+
 /**
  * Control query handler
  *
@@ -3424,9 +3589,10 @@ static int EsOutVaControlLocked(es_out_sys_t *p_sys, input_source_t *source,
         /* TODO do not use vlc_tick_now() but proper stream acquisition date */
         const bool b_low_delay = priv->b_low_delay;
         bool b_extra_buffering_allowed = !b_low_delay && EsOutIsExtraBufferingAllowed(p_sys);
+        bool buffering = p_sys->b_buffering || p_sys->p_next_frame_es != NULL;
         vlc_tick_t i_late = input_clock_Update(
                             p_pgrm->p_input_clock,
-                            input_CanPaceControl(p_sys->p_input), p_sys->b_buffering,
+                            input_CanPaceControl(p_sys->p_input), buffering,
                             b_extra_buffering_allowed,
                             i_pcr, vlc_tick_now() );
 
@@ -3520,7 +3686,8 @@ static int EsOutVaControlLocked(es_out_sys_t *p_sys, input_source_t *source,
 
     case ES_OUT_RESET_PCR:
         msg_Dbg( p_sys->p_input, "ES_OUT_RESET_PCR called" );
-        EsOutChangePosition(p_sys, true, NULL);
+        EsOutStopNextFrame(p_sys);
+        EsOutChangePosition(p_sys, NULL);
         return VLC_SUCCESS;
 
     case ES_OUT_SET_GROUP:
@@ -3871,15 +4038,6 @@ static int EsOutVaPrivControlLocked(es_out_sys_t *p_sys, input_source_t *source,
         bool *pb = va_arg( args, bool* );
         if( p_sys->b_buffering )
             *pb = true;
-        else if( p_sys->p_next_frame_es != NULL )
-        {
-            /* The input thread will continue to call demux() if this control
-             * returns true. In case of next-frame, ask the input thread to
-             * continue to demux() until the vout has a picture to display. */
-            assert( p_sys->b_paused );
-            *pb = p_sys->p_next_frame_es->p_dec != NULL
-                && vlc_input_decoder_IsEmpty( p_sys->p_next_frame_es->p_dec );
-        }
         else
             *pb = false;
         return VLC_SUCCESS;
@@ -3926,8 +4084,38 @@ static int EsOutVaPrivControlLocked(es_out_sys_t *p_sys, input_source_t *source,
 
         return VLC_SUCCESS;
     }
+    case ES_OUT_PRIV_RESET_PCR_FRAME_PREV:
+    {
+        const vlc_tick_t buffering_duration = va_arg(args, vlc_tick_t);
+
+        if (buffering_duration == 0)
+        {
+            EsOutResumeFromNextFrame(p_sys);
+            return VLC_SUCCESS;
+        }
+        /* Check if we have enough buffering to reach the current frame */
+        vlc_tick_t new_jitter = buffering_duration - p_sys->i_pts_delay;
+        if (new_jitter > p_sys->i_pts_jitter)
+        {
+            new_jitter += p_sys->i_pts_jitter;
+
+            msg_Warn(p_sys->p_input,
+                     "previous-frame: seek-back (%d ms) longer than buffering, "
+                     "adding %d ms to pts-delay",
+                     (int)MS_FROM_VLC_TICK(buffering_duration),
+                     (int)MS_FROM_VLC_TICK(new_jitter));
+            if (p_sys->i_last_pts_jitter == VLC_TICK_INVALID)
+                p_sys->i_last_pts_jitter = p_sys->i_pts_jitter;
+            EsOutSetJitter(p_sys, p_sys->i_pts_delay, new_jitter,
+                           p_sys->i_cr_average);
+        }
+
+        EsOutChangePosition( p_sys, NULL );
+        return VLC_SUCCESS;
+    }
     case ES_OUT_PRIV_SET_FRAME_NEXT:
-        EsOutFrameNext(p_sys);
+    case ES_OUT_PRIV_SET_FRAME_PREVIOUS:
+        EsOutFrameNext( p_sys, query == ES_OUT_PRIV_SET_FRAME_PREVIOUS );
         return VLC_SUCCESS;
     case ES_OUT_PRIV_SET_TIMES:
     {
@@ -3980,33 +4168,8 @@ static int EsOutVaPrivControlLocked(es_out_sys_t *p_sys, input_source_t *source,
         vlc_tick_t i_pts_delay  = va_arg( args, vlc_tick_t );
         vlc_tick_t i_pts_jitter = va_arg( args, vlc_tick_t );
         int     i_cr_average = va_arg( args, int );
-        es_out_pgrm_t *pgrm;
 
-        const vlc_tick_t i_tracks_pts_delay = EsOutGetTracksDelay(p_sys);
-        bool b_change_clock =
-            i_pts_delay != p_sys->i_pts_delay ||
-            i_pts_jitter != p_sys->i_pts_jitter ||
-            i_cr_average != p_sys->i_cr_average ||
-            i_tracks_pts_delay != p_sys->i_tracks_pts_delay;
-
-        assert( i_pts_jitter >= 0 );
-        p_sys->i_pts_delay  = i_pts_delay;
-        p_sys->i_pts_jitter = i_pts_jitter;
-        p_sys->i_cr_average = i_cr_average;
-        p_sys->i_tracks_pts_delay = i_tracks_pts_delay;
-
-        if (!b_change_clock)
-            return VLC_SUCCESS;
-
-        i_pts_delay += i_pts_jitter + i_tracks_pts_delay;
-        vlc_list_foreach(pgrm, &p_sys->programs, node)
-        {
-            input_clock_SetJitter(pgrm->p_input_clock,
-                                  i_pts_delay, i_cr_average);
-            vlc_clock_main_Lock(pgrm->clocks.main);
-            vlc_clock_main_SetInputDejitter(pgrm->clocks.main, i_pts_delay);
-            vlc_clock_main_Unlock(pgrm->clocks.main);
-        }
+        EsOutSetJitter(p_sys, i_pts_delay, i_pts_jitter, i_cr_average);
         return VLC_SUCCESS;
     }
     case ES_OUT_PRIV_GET_GROUP_FORCED:
@@ -4103,7 +4266,7 @@ struct vlc_input_es_out *
 input_EsOutNew(input_thread_t *p_input, input_source_t *main_source, float rate,
                enum input_type input_type)
 {
-    es_out_sys_t *p_sys = calloc( 1, sizeof( *p_sys ) );
+    es_out_sys_t *p_sys = malloc( sizeof( *p_sys ) );
     if( !p_sys )
         return NULL;
 
@@ -4123,6 +4286,7 @@ input_EsOutNew(input_thread_t *p_input, input_source_t *main_source, float rate,
     p_sys->i_mode   = ES_OUT_MODE_NONE;
     p_sys->input_type = input_type;
 
+    p_sys->p_pgrm = NULL;
     vlc_list_init(&p_sys->programs);
     vlc_list_init(&p_sys->es);
     vlc_list_init(&p_sys->es_slaves);
@@ -4141,15 +4305,25 @@ input_EsOutNew(input_thread_t *p_input, input_source_t *main_source, float rate,
     p_sys->cc_decoder = var_InheritInteger( p_input, "captions" );
 
     p_sys->i_group_id = var_GetInteger( p_input, "program" );
+    p_sys->i_audio_delay = p_sys->i_spu_delay = p_sys->i_video_delay = 0;
+    p_sys->i_pts_delay = p_sys->i_tracks_pts_delay = p_sys->i_pts_jitter
+                       = p_sys->i_last_pts_jitter = VLC_TICK_INVALID;
+    p_sys->i_cr_average = 0;
 
     p_sys->user_clock_source = clock_source_Inherit( VLC_OBJECT(p_input) );
+    p_sys->i_id = 0;
 
     p_sys->i_pause_date = -1;
 
     p_sys->rate = rate;
+    p_sys->b_paused = false;
 
     p_sys->b_buffering = true;
+    p_sys->i_buffering_extra_initial = p_sys->i_buffering_extra_stream
+                                     = p_sys->i_buffering_extra_system
+                                     = VLC_TICK_INVALID;
     p_sys->b_draining = false;
+    p_sys->p_sout_record = NULL;
     p_sys->i_preroll_end = -1;
     p_sys->i_prev_stream_level = -1;
 

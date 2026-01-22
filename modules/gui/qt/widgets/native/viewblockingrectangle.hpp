@@ -66,6 +66,7 @@ class ViewBlockingRectangle : public QQuickItem
     Q_OBJECT
 
     Q_PROPERTY(QColor color MEMBER m_color NOTIFY colorChanged FINAL)
+    Q_PROPERTY(bool renderingEnabled MEMBER m_renderingEnabled WRITE setRenderingEnabled NOTIFY renderingEnabledChanged FINAL)
 
 public:
     explicit ViewBlockingRectangle(QQuickItem *parent = nullptr);
@@ -77,10 +78,19 @@ protected:
     // These methods should only be called from the rendering thread.
     QSizeF renderSize() const;
     QPointF renderPosition() const;
+    void setRenderingEnabled(bool enabled);
+    void setUpdateRenderPosition(bool update);
+    bool updateRenderPosition() const;
 
 private:
     QColor m_color;
     bool m_windowChanged = false;
+
+    bool m_renderingEnabled = true;
+
+    // Updating the render position (`m_renderPosition`) requires an additional
+    // scene graph node, albeit lightweight, thus it is an opt-in feature:
+    bool m_updateRenderPosition = false;
 
     // Although these members belong to the class instance's thread, they
     // are updated in the rendering thread:
@@ -92,6 +102,7 @@ signals:
     //       and NOT during synchronization (meaning, GUI thread is not blocked):
     void scenePositionHasChanged();
     void colorChanged();
+    void renderingEnabledChanged();
 };
 
 #endif

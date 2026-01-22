@@ -37,6 +37,8 @@
 #include <vlc_common.h>
 #include <assert.h>
 
+#include <vlc_process.h>
+
 #ifndef ENABLE_VLM
 # include <vlc_vlm.h>
 
@@ -148,16 +150,19 @@ _Noreturn void vlc_control_cancel (vlc_cleanup_t *cleaner)
 
 #if !defined(_WIN32)
 # define HAVE_WEAK_SPAWN
+# define HAVE_WEAK_SPAWNP
 #else
 # if !WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
-#  define HAVE_WEAK_SPAWN
+#  define HAVE_WEAK_SPAWNP
 # endif
 #endif
 
-#ifdef HAVE_WEAK_SPAWN
+#if defined(HAVE_WEAK_SPAWN) || defined(HAVE_WEAK_SPAWNP)
 #include <errno.h>
 #include <vlc_spawn.h>
+#endif
 
+#if defined(HAVE_WEAK_SPAWNP)
 VLC_WEAK
 int vlc_spawn(pid_t *pid, const char *file, const int *fds,
               const char *const *args)
@@ -179,5 +184,49 @@ int vlc_waitpid(pid_t pid)
 {
     (void) pid;
     vlc_assert_unreachable();
+}
+#endif
+
+#if defined(HAVE_WEAK_SPAWN)
+VLC_WEAK struct vlc_process *
+vlc_process_Spawn(const char *path, int argc, const char *const *argv)
+{
+    VLC_UNUSED(path);
+    VLC_UNUSED(argc);
+    VLC_UNUSED(argv);
+    return NULL;
+}
+
+VLC_WEAK int
+vlc_process_Terminate(struct vlc_process *process, bool kill_process)
+{
+    VLC_UNUSED(process);
+    VLC_UNUSED(kill_process);
+    vlc_assert_unreachable();
+    return -1;
+}
+
+VLC_WEAK ssize_t
+vlc_process_fd_Read(struct vlc_process *process, uint8_t *buf, size_t size,
+                    vlc_tick_t timeout_ms)
+{
+    VLC_UNUSED(process);
+    VLC_UNUSED(buf);
+    VLC_UNUSED(size);
+    VLC_UNUSED(timeout_ms);
+    vlc_assert_unreachable();
+    return -1;
+}
+
+VLC_WEAK ssize_t
+vlc_process_fd_Write(struct vlc_process *process, const uint8_t *buf, size_t size,
+                     vlc_tick_t timeout_ms)
+{
+    VLC_UNUSED(process);
+    VLC_UNUSED(buf);
+    VLC_UNUSED(size);
+    VLC_UNUSED(timeout_ms);
+    vlc_assert_unreachable();
+    return -1;
 }
 #endif

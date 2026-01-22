@@ -1,6 +1,6 @@
 dnl Autoconf settings for vlc
 
-AC_COPYRIGHT([Copyright 1999-2025 VLC authors and VideoLAN])
+AC_COPYRIGHT([Copyright 1999-2026 VLC authors and VideoLAN])
 
 AC_INIT([vlc], [4.0.0-dev])
 VERSION_MAJOR=4
@@ -19,7 +19,7 @@ AC_SUBST([PKGDIR])
 
 CONFIGURE_LINE="`echo "$0 $ac_configure_args" | sed -e 's/\\\/\\\\\\\/g'`"
 CODENAME="Otto Chriek"
-COPYRIGHT_YEARS="1996-2025"
+COPYRIGHT_YEARS="1996-2026"
 
 AC_CONFIG_SRCDIR([src/libvlc.c])
 AC_CONFIG_AUX_DIR([autotools])
@@ -480,7 +480,6 @@ AS_IF([test "${SYS}" = "mingw32"],[
   AS_IF([test "${enable_winstore_app}" = "yes"], [
     vlc_winstore_app=1
     LIBCOM="-loleaut32"
-    LDFLAGS="${LDFLAGS} -lwindowsappcompat"
     VLC_ADD_LIBS([libvlccore], [-lruntimeobject])
     AC_LIBOBJ([gai_strerror])
   ],[])
@@ -2330,10 +2329,6 @@ AC_ARG_ENABLE([vcd],
   AS_HELP_STRING([--disable-vcd],
     [disable built-in VCD and CD-DA support (default enabled)]))
 
-AC_ARG_ENABLE([libcddb],
-  AS_HELP_STRING([--disable-libcddb],
-    [disable CDDB for Audio CD (default enabled)]))
-
 if test "${enable_vcd}" != "no" -a "${enable_winstore_app}" != "yes"
 then
   AC_MSG_CHECKING(for cdrom_msf0 in linux/cdrom.h)
@@ -2365,17 +2360,6 @@ then
   if test "${SYS}" = "bsdi" -o "${SYS}" = "mingw32" -o "${SYS}" = "os2" -o "${SYS}" = "darwin"
   then
     VLC_ADD_PLUGIN([vcd cdda])
-  fi
-
-  if test "$enable_libcddb" != "no"; then
-    PKG_CHECK_MODULES(LIBCDDB, [libcddb >= 0.9.5], [
-      HAVE_LIBCDDB=yes
-      AC_DEFINE(HAVE_LIBCDDB, 1, [Define this if you have libcddb installed])
-      VLC_ADD_LIBS([cdda],[$LIBCDDB_LIBS])
-      VLC_ADD_CFLAGS([cdda],[$LIBCDDB_CFLAGS])
-      ],:
-      [AC_MSG_WARN([${LIBCDDB_PKG_ERRORS}: CDDB access disabled.])
-      HAVE_LIBCDDB=no])
   fi
 fi
 

@@ -466,11 +466,11 @@ ListView {
     }
 
     function nextPage() {
-        root.contentX += (Math.min(root.width, (root.contentWidth - root.width - root.contentX)))
+        root.contentX = Helpers.getFlickableBoundedContentX(root, root.contentX + root.width)
     }
 
     function prevPage() {
-        root.contentX -= Math.min(root.width,root.contentX - root.originX)
+        root.contentX = Helpers.getFlickableBoundedContentX(root, root.contentX - root.width)
     }
 
     // Add an indirection here because additional control

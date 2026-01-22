@@ -224,10 +224,10 @@ static cudaVideoSurfaceFormat MapSurfaceFmt(int i_vlc_fourcc)
     }
 }
 
-static int CUtoFMT(video_format_t *fmt, const CUVIDEOFORMAT *p_format)
+static int CUtoFMT(video_format_t *fmt, const CUVIDEOFORMAT *p_format,
+                   unsigned int i_bpp)
 {
     // bit depth and chroma
-    unsigned int i_bpp = p_format->bit_depth_luma_minus8 + 8;
     vlc_fourcc_t i_chroma;
     if (is_nvdec_opaque(fmt->i_chroma))
         i_chroma = MapSurfaceOpaqueChroma(p_format->chroma_format, i_bpp);
@@ -265,8 +265,9 @@ static int CUDAAPI HandleVideoSequence(void *p_opaque, CUVIDEOFORMAT *p_format)
         }
     }
 
+    unsigned int i_bpp = p_format->bit_depth_luma_minus8 + 8;
     // update vlc's output format using NVDEC parser's output
-    ret = CUtoFMT(&p_dec->fmt_out.video, p_format);
+    ret = CUtoFMT(&p_dec->fmt_out.video, p_format, i_bpp);
     if (ret != VLC_SUCCESS)
     {
         msg_Dbg(p_dec, "unsupported Chroma %d + BitDepth %d", p_format->chroma_format, p_format->bit_depth_luma_minus8 + 8);
@@ -333,9 +334,12 @@ static int CUDAAPI HandleVideoSequence(void *p_opaque, CUVIDEOFORMAT *p_format)
             goto cuda_error;
 
         ret = CALL_CUDA_DEC(cuDeviceGetAttribute, &tex_alignment, CU_DEVICE_ATTRIBUTE_TEXTURE_ALIGNMENT, cuDev);
-        if (ret != VLC_SUCCESS || tex_alignment < 0)
+        if (ret != VLC_SUCCESS || tex_alignment <= 0)
             goto cuda_error;
-        p_sys->outputPitch = (p_dec->fmt_out.video.i_width + tex_alignment - 1) / tex_alignment * tex_alignment;
+
+        unsigned int bytes_per_sample = i_bpp > 8 ? 2 : 1;
+        p_sys->outputPitch = (p_dec->fmt_out.video.i_width * bytes_per_sample
+                            + tex_alignment - 1) / tex_alignment * tex_alignment;
 
         unsigned int ByteWidth = p_sys->outputPitch;
         unsigned int Height = p_dec->fmt_out.video.i_height;
@@ -1038,9 +1042,9 @@ static int OpenDecoder(vlc_object_t *p_this)
 
 error:
     CloseDecoder(p_this);
+    return VLC_EGENERIC;
 early_exit:
     free(p_dec->p_sys);
-    p_dec->p_sys = NULL;
     return VLC_EGENERIC;
 }
 
@@ -1066,7 +1070,6 @@ static void CloseDecoder(vlc_object_t *p_this)
     {
         cuvid_free_functions(&p_sys->cuvidFunctions);
         free(p_dec->p_sys);
-        p_dec->p_sys = NULL;
     }
 }
 
@@ -1103,6 +1106,7 @@ DecoderContextOpen(vlc_decoder_device *device, vlc_window_t *window)
     device->ops = &dev_ops;
     device->type = VLC_DECODER_DEVICE_NVDEC;
     p_sys->cudaFunctions = NULL;
+    p_sys->cuCtx = NULL;
 
     int result = cuda_load_functions(&p_sys->cudaFunctions, device);
     if (result != VLC_SUCCESS) {

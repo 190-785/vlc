@@ -38,11 +38,6 @@
 #include <GLES2/gl2.h>
 #include <GLES2/gl2ext.h>
 
-typedef ANativeWindow* (*ptr_ANativeWindow_fromSurface)(JNIEnv*, jobject);
-typedef ANativeWindow* (*ptr_ANativeWindow_fromSurfaceTexture)(JNIEnv*, jobject);
-typedef void (*ptr_ANativeWindow_acquire)(ANativeWindow*);
-typedef void (*ptr_ANativeWindow_release)(ANativeWindow*);
-
 typedef void (*ptr_ASurfaceTexture_getTransformMatrix)
                                         (ASurfaceTexture *st, float mtx[16]);
 typedef ASurfaceTexture* (*ptr_ASurfaceTexture_fromSurfaceTexture)
@@ -130,10 +125,6 @@ struct AWindowHandler
     } views[AWindow_Max];
 
     void *p_anw_dl;
-    ptr_ANativeWindow_fromSurface pf_winFromSurface;
-    ptr_ANativeWindow_acquire pf_winAcquire;
-    ptr_ANativeWindow_release pf_winRelease;
-    native_window_api_t anw_api;
 
     struct ASurfaceTextureAPI ndk_ast_api;
     bool b_has_ndk_ast_api;
@@ -155,180 +146,6 @@ struct AWindowHandler
     (*p_env)->what(p_env, p_awh->jobj, p_awh->jfields.AWindow.method, ##__VA_ARGS__)
 #define JNI_STEXCALL(what, method, ...) \
     (*p_env)->what(p_env, p_awh->jobj, p_awh->jfields.AWindow.method, ##__VA_ARGS__)
-
-/*
- * Android Surface (pre android 2.3)
- */
-
-extern void *jni_AndroidJavaSurfaceToNativeSurface(jobject surf);
-#ifndef ANDROID_SYM_S_LOCK
-# define ANDROID_SYM_S_LOCK "_ZN7android7Surface4lockEPNS0_11SurfaceInfoEb"
-#endif
-#ifndef ANDROID_SYM_S_LOCK2
-# define ANDROID_SYM_S_LOCK2 "_ZN7android7Surface4lockEPNS0_11SurfaceInfoEPNS_6RegionE"
-#endif
-#ifndef ANDROID_SYM_S_UNLOCK
-# define ANDROID_SYM_S_UNLOCK "_ZN7android7Surface13unlockAndPostEv"
-#endif
-typedef void (*AndroidSurface_lock)(void *, void *, int);
-typedef void (*AndroidSurface_lock2)(void *, void *, void *);
-typedef void (*AndroidSurface_unlockAndPost)(void *);
-
-typedef struct {
-    void *p_dl_handle;
-    void *p_surface_handle;
-    AndroidSurface_lock pf_lock;
-    AndroidSurface_lock2 pf_lock2;
-    AndroidSurface_unlockAndPost pf_unlockAndPost;
-} NativeSurface;
-
-static inline void *
-NativeSurface_Load(const char *psz_lib, NativeSurface *p_ns)
-{
-    void *p_lib = dlopen(psz_lib, RTLD_NOW);
-    if (!p_lib)
-        return NULL;
-
-    p_ns->pf_lock = (AndroidSurface_lock)(dlsym(p_lib, ANDROID_SYM_S_LOCK));
-    p_ns->pf_lock2 = (AndroidSurface_lock2)(dlsym(p_lib, ANDROID_SYM_S_LOCK2));
-    p_ns->pf_unlockAndPost =
-        (AndroidSurface_unlockAndPost)(dlsym(p_lib, ANDROID_SYM_S_UNLOCK));
-
-    if ((p_ns->pf_lock || p_ns->pf_lock2) && p_ns->pf_unlockAndPost)
-        return p_lib;
-
-    dlclose(p_lib);
-    return NULL;
-}
-
-static void *
-NativeSurface_getHandle(JNIEnv *p_env, jobject jsurf)
-{
-    jclass clz;
-    jfieldID fid;
-    intptr_t p_surface_handle = 0;
-
-    clz = (*p_env)->GetObjectClass(p_env, jsurf);
-    if ((*p_env)->ExceptionCheck(p_env))
-    {
-        (*p_env)->ExceptionClear(p_env);
-        return NULL;
-    }
-    fid = (*p_env)->GetFieldID(p_env, clz, "mSurface", "I");
-    if (fid == NULL)
-    {
-        if ((*p_env)->ExceptionCheck(p_env))
-            (*p_env)->ExceptionClear(p_env);
-        fid = (*p_env)->GetFieldID(p_env, clz, "mNativeSurface", "I");
-        if (fid == NULL)
-        {
-            if ((*p_env)->ExceptionCheck(p_env))
-                (*p_env)->ExceptionClear(p_env);
-        }
-    }
-    if (fid != NULL)
-        p_surface_handle = (intptr_t)(*p_env)->GetIntField(p_env, jsurf, fid);
-    (*p_env)->DeleteLocalRef(p_env, clz);
-
-    return (void *)p_surface_handle;
-}
-
-
-static ANativeWindow*
-NativeSurface_fromSurface(JNIEnv *p_env, jobject jsurf)
-{
-    void *p_surface_handle;
-    NativeSurface *p_ns;
-
-    static const char *libs[] = {
-        "libsurfaceflinger_client.so",
-        "libgui.so",
-        "libui.so"
-    };
-    p_surface_handle = NativeSurface_getHandle(p_env, jsurf);
-    if (!p_surface_handle)
-        return NULL;
-    p_ns = malloc(sizeof(NativeSurface));
-    if (!p_ns)
-        return NULL;
-    p_ns->p_surface_handle = p_surface_handle;
-
-    for (size_t i = 0; i < ARRAY_SIZE(libs); i++)
-    {
-        void *p_dl_handle = NativeSurface_Load(libs[i], p_ns);
-        if (p_dl_handle)
-        {
-            p_ns->p_dl_handle = p_dl_handle;
-            return (ANativeWindow*)p_ns;
-        }
-    }
-    free(p_ns);
-    return NULL;
-}
-
-static void
-NativeSurface_release(ANativeWindow* p_anw)
-{
-    NativeSurface *p_ns = (NativeSurface *)p_anw;
-
-    dlclose(p_ns->p_dl_handle);
-    free(p_ns);
-}
-
-static int32_t
-NativeSurface_lock(ANativeWindow *p_anw, ANativeWindow_Buffer *p_anb,
-                   ARect *p_rect)
-{
-    (void) p_rect;
-    NativeSurface *p_ns = (NativeSurface *)p_anw;
-    struct {
-        uint32_t    w;
-        uint32_t    h;
-        uint32_t    s;
-        uint32_t    usage;
-        uint32_t    format;
-        uint32_t*   bits;
-        uint32_t    reserved[2];
-    } info = { 0 };
-
-    if (p_ns->pf_lock)
-        p_ns->pf_lock(p_ns->p_surface_handle, &info, 1);
-    else
-        p_ns->pf_lock2(p_ns->p_surface_handle, &info, NULL);
-
-    if (!info.w || !info.h) {
-        p_ns->pf_unlockAndPost(p_ns->p_surface_handle);
-        return -1;
-    }
-
-    if (p_anb) {
-        p_anb->bits = info.bits;
-        p_anb->width = info.w;
-        p_anb->height = info.h;
-        p_anb->stride = info.s;
-        p_anb->format = info.format;
-    }
-    return 0;
-}
-
-static void
-NativeSurface_unlockAndPost(ANativeWindow *p_anw)
-{
-    NativeSurface *p_ns = (NativeSurface *)p_anw;
-
-    p_ns->pf_unlockAndPost(p_ns->p_surface_handle);
-}
-
-static void
-LoadNativeSurfaceAPI(AWindowHandler *p_awh)
-{
-    p_awh->pf_winFromSurface = NativeSurface_fromSurface;
-    p_awh->pf_winAcquire = NULL;
-    p_awh->pf_winRelease = NativeSurface_release;
-    p_awh->anw_api.winLock = NativeSurface_lock;
-    p_awh->anw_api.unlockAndPost = NativeSurface_unlockAndPost;
-    p_awh->anw_api.setBuffersGeometry = NULL;
-}
 
 static int
 NDKSurfaceTexture_attachToGLContext(
@@ -382,7 +199,7 @@ static void NDKSurfaceTexture_destroy(
                              handle->awh->jfields.SurfaceTexture.release);
 
     if (handle->surface.window)
-        handle->awh->pf_winRelease(handle->surface.window);
+        ANativeWindow_release(handle->surface.window);
 
     if (handle->surface.jsurface)
         (*p_env)->DeleteGlobalRef(p_env, handle->surface.jsurface);
@@ -508,7 +325,7 @@ static void JNISurfaceTexture_destroy(
                              handle->awh->jfields.SurfaceTexture.release);
 
     if (handle->surface.window)
-        handle->awh->pf_winRelease(handle->surface.window);
+        ANativeWindow_release(handle->surface.window);
     if (handle->surface.jsurface)
         (*p_env)->DeleteGlobalRef(p_env, handle->surface.jsurface);
 
@@ -571,30 +388,10 @@ LoadNativeWindowAPI(AWindowHandler *p_awh)
 {
     void *p_library = dlopen("libandroid.so", RTLD_NOW);
     if (!p_library)
-    {
-        LoadNativeSurfaceAPI(p_awh);
         return;
-    }
 
-    p_awh->pf_winFromSurface = dlsym(p_library, "ANativeWindow_fromSurface");
-    p_awh->pf_winAcquire = dlsym(p_library, "ANativeWindow_acquire");
-    p_awh->pf_winRelease = dlsym(p_library, "ANativeWindow_release");
-    p_awh->anw_api.winLock = dlsym(p_library, "ANativeWindow_lock");
-    p_awh->anw_api.unlockAndPost = dlsym(p_library, "ANativeWindow_unlockAndPost");
-    p_awh->anw_api.setBuffersGeometry = dlsym(p_library, "ANativeWindow_setBuffersGeometry");
-
-    if (p_awh->pf_winFromSurface && p_awh->pf_winAcquire && p_awh->pf_winRelease
-     && p_awh->anw_api.winLock && p_awh->anw_api.unlockAndPost
-     && p_awh->anw_api.setBuffersGeometry)
-    {
-        p_awh->b_has_ndk_ast_api = !LoadNDKSurfaceTextureAPI(p_awh, p_library);
-        p_awh->p_anw_dl = p_library;
-    }
-    else
-    {
-        dlclose(p_library);
-        LoadNativeSurfaceAPI(p_awh);
-    }
+    p_awh->b_has_ndk_ast_api = !LoadNDKSurfaceTextureAPI(p_awh, p_library);
+    p_awh->p_anw_dl = p_library;
 }
 
 static void
@@ -865,19 +662,14 @@ AWindowHandler_newFromANWs(vlc_object_t *obj, ANativeWindow *video,
     awh->wnd = NULL;
 
     LoadNativeWindowAPI(awh);
-    if (awh->pf_winAcquire == NULL)
-    {
-        free(awh);
-        return NULL;
-    }
 
     awh->views[AWindow_Video].p_anw = video;
-    awh->pf_winAcquire(video);
+    ANativeWindow_acquire(video);
     awh->capabilities = 0;
 
     awh->views[AWindow_Subtitles].p_anw = subtitle;
     if (subtitle != NULL)
-        awh->pf_winAcquire(subtitle);
+        ANativeWindow_acquire(subtitle);
 
     return awh;
 }
@@ -890,7 +682,7 @@ AWindowHandler_releaseANativeWindowEnv(AWindowHandler *p_awh, JNIEnv *p_env,
 
     if (p_awh->views[id].p_anw)
     {
-        p_awh->pf_winRelease(p_awh->views[id].p_anw);
+        ANativeWindow_release(p_awh->views[id].p_anw);
         p_awh->views[id].p_anw = NULL;
     }
 
@@ -931,12 +723,6 @@ AWindowHandler_destroy(AWindowHandler *p_awh)
     if (p_awh->p_anw_dl)
         dlclose(p_awh->p_anw_dl);
     free(p_awh);
-}
-
-native_window_api_t *
-AWindowHandler_getANativeWindowAPI(AWindowHandler *p_awh)
-{
-    return &p_awh->anw_api;
 }
 
 static struct vlc_asurfacetexture_priv* CreateSurfaceTexture(
@@ -1103,7 +889,7 @@ success:
             goto error;
 
         handle->surface.window =
-            p_awh->pf_winFromSurface(p_env, handle->surface.jsurface);
+            ANativeWindow_fromSurface(p_env, handle->surface.jsurface);
         handle->surface.ops = &JNISurfaceAPI;
     }
 
@@ -1136,7 +922,7 @@ error:
         eglTerminate(display);
 
     if (handle->surface.window != NULL)
-        p_awh->pf_winRelease(handle->surface.window);
+        ANativeWindow_release(handle->surface.window);
 
     if (handle->surface.jsurface != NULL)
         (*p_env)->DeleteGlobalRef(p_env, handle->surface.jsurface);
@@ -1210,24 +996,11 @@ AWindowHandler_getANativeWindow(AWindowHandler *p_awh, enum AWindow_ID id)
     assert(p_awh->views[id].jsurface != NULL);
 
     if (!p_awh->views[id].p_anw)
-        p_awh->views[id].p_anw = p_awh->pf_winFromSurface(p_env,
+        p_awh->views[id].p_anw = ANativeWindow_fromSurface(p_env,
                                                     p_awh->views[id].jsurface);
 
     return p_awh->views[id].p_anw;
 }
-
-jobject
-AWindowHandler_getSurface(AWindowHandler *p_awh, enum AWindow_ID id)
-{
-    assert(id < AWindow_Max);
-
-    if (p_awh->views[id].jsurface)
-        return p_awh->views[id].jsurface;
-
-    AWindowHandler_getANativeWindow(p_awh, id);
-    return p_awh->views[id].jsurface;
-}
-
 
 void AWindowHandler_releaseANativeWindow(AWindowHandler *p_awh,
                                          enum AWindow_ID id)

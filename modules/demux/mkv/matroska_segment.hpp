@@ -122,9 +122,7 @@ public:
     /* info */
     char                    *psz_muxing_application;
     char                    *psz_writing_application;
-    char                    *psz_segment_filename;
     char                    *psz_title;
-    char                    *psz_date_utc;
 
     /* !!!!! GCC 3.3 bug on Darwin !!!!! */
     /* when you remove this variable the compiler issues an atomicity error */

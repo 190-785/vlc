@@ -217,6 +217,7 @@ input_item_NewExt
 input_item_Hold
 input_item_Playable
 input_item_Release
+input_item_Update
 input_item_node_AppendItem
 input_item_node_AppendNode
 input_item_node_RemoveNode
@@ -328,10 +329,13 @@ picture_Destroy
 picture_CopyProperties
 picture_Copy
 picture_Export
+picture_fifo_Lock
+picture_fifo_Unlock
 picture_fifo_Delete
 picture_fifo_Flush
 picture_fifo_New
 picture_fifo_IsEmpty
+picture_fifo_GetCount
 picture_fifo_Pop
 picture_fifo_Push
 picture_GetAncillary
@@ -676,8 +680,8 @@ vlc_list_children
 vlc_meta_SetExtraWithPriority
 vlc_meta_CopyExtraNames
 vlc_meta_Delete
-vlc_meta_Get
-vlc_meta_GetExtra
+vlc_meta_GetWithPriority
+vlc_meta_GetExtraWithPriority
 vlc_meta_GetExtraCount
 vlc_meta_GetStatus
 vlc_meta_Merge
@@ -899,6 +903,7 @@ vlc_player_Lock
 vlc_player_Navigate
 vlc_player_New
 vlc_player_NextVideoFrame
+vlc_player_PreviousVideoFrame
 vlc_player_osd_Message
 vlc_player_Pause
 vlc_player_program_Delete
@@ -932,7 +937,6 @@ vlc_player_SetAtoBLoop
 vlc_player_SetAtoBLoopTime
 vlc_player_SetAtoBLoopPosition
 vlc_player_ResetAtoBLoop
-vlc_player_GetAtoBLoop
 vlc_player_SetCategoryDelay
 vlc_player_SetCurrentMedia
 vlc_player_SetNextMedia
@@ -1062,3 +1066,10 @@ vlc_preparser_req_GetItem
 vlc_preparser_req_Release
 vlc_preparser_Delete
 vlc_preparser_SetTimeout
+vlc_process_Spawn
+vlc_process_Terminate
+vlc_process_fd_Read
+vlc_process_fd_Write
+vlc_preparser_msg_Init
+vlc_preparser_msg_Clean
+vlc_preparser_msg_serdes_Create

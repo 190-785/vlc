@@ -1278,10 +1278,10 @@ static int Direct3D11Open(vout_display_t *vd, video_format_t *fmtp, vlc_video_co
     return VLC_SUCCESS;
 }
 
-static const d3d_format_t *SelectOutputFormat(vout_display_t *vd, const video_format_t *fmt, vlc_video_context *vctx,
-                                              bool allow_processor)
+static const d3d_format_t *SelectOutputFormat(vout_display_t *vd, const video_format_t *fmt, vlc_video_context *vctx)
 {
     vout_display_sys_t *sys = static_cast<vout_display_sys_t *>(vd->sys);
+    bool allow_processor = false;
 
     const d3d_format_t *res = nullptr;
 
@@ -1473,15 +1473,27 @@ static int SetupOutputFormat(vout_display_t *vd, video_format_t *fmt, vlc_video_
     if (sys->hdrMode == hdr_Fake)
     {
         // force a fake HDR source
-        // corresponds to DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020
-        vctx                         = nullptr; // TODO create an internal one from the tonemapper
-        quad_fmt->i_chroma           = VLC_CODEC_RGBA10LE;
-        quad_fmt->primaries          = COLOR_PRIMARIES_BT2020;
-        quad_fmt->transfer           = TRANSFER_FUNC_SMPTE_ST2084;
-        quad_fmt->space              = COLOR_SPACE_BT2020;
-        quad_fmt->color_range        = COLOR_RANGE_FULL;
+        if (likely(D3D11_DeviceSupportsFormat( sys->d3d_dev, DXGI_FORMAT_R10G10B10A2_UNORM, D3D11_FORMAT_SUPPORT_SHADER_LOAD )))
+        {
+            sys->picQuad.generic.textureFormat = D3D11_RenderFormat(DXGI_FORMAT_R10G10B10A2_UNORM, DXGI_FORMAT_UNKNOWN ,true);
+            if (sys->picQuad.generic.textureFormat)
+            {
+                quad_fmt->i_chroma = sys->picQuad.generic.textureFormat->fourcc;
+                // corresponds to DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020
+                quad_fmt->primaries          = COLOR_PRIMARIES_BT2020;
+                quad_fmt->transfer           = TRANSFER_FUNC_SMPTE_ST2084;
+                quad_fmt->space              = COLOR_SPACE_BT2020;
+                quad_fmt->color_range        = COLOR_RANGE_FULL;
+            }
+        }
+        else
+        {
+            msg_Err(vd, "Could not use R10G10B10A2 in shaders!");
+            return VLC_EGENERIC;
+        }
     }
-    sys->picQuad.generic.textureFormat = SelectOutputFormat(vd, quad_fmt, vctx, false);
+    else
+        sys->picQuad.generic.textureFormat = SelectOutputFormat(vd, quad_fmt, vctx);
     if ( !sys->picQuad.generic.textureFormat )
     {
        msg_Err(vd, "Could not get a suitable texture pixel format");
@@ -1491,7 +1503,7 @@ static int SetupOutputFormat(vout_display_t *vd, video_format_t *fmt, vlc_video_
     if (vctx)
     {
         d3d11_video_context_t *vtcx_sys = GetD3D11ContextPrivate(vctx);
-        if (vtcx_sys && sys->picQuad.generic.textureFormat->formatTexture != vtcx_sys->format)
+        if (vtcx_sys && sys->picQuad.generic.textureFormat->formatTexture != vtcx_sys->format && sys->hdrMode != hdr_Fake)
         {
             HRESULT hr;
             // check the input format can be used as input of a VideoProcessor

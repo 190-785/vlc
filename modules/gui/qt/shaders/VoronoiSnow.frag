@@ -48,6 +48,8 @@ layout(std140, binding = 0) uniform buf {
     vec2 windowSize;
     float time; // seed
     vec4 color; // snowflake color
+
+    int yFlip;
 };
 
 // Inigo Quilez's voronoi (https://iquilezles.org/articles/voronoilines):
@@ -143,10 +145,12 @@ void main()
 
     vec3 col = vec3(0.0, 0.0, 0.0);
 
+    float direction = sign(qt_Matrix[3][1]) * yFlip;
+
     // Multiple layers
     for (float i = 1.0; i <= LAYER_MAX; i += LAYER_INCREMENT)
     {
-        vec3 c = voronoi((6.0 * p + sign(qt_Matrix[3][1]) * vec2(sin(time) / 2.0, time)) * i);
+        vec3 c = voronoi((6.0 * p + direction * vec2(sin(time) / 2.0, time)) * i);
 
         // Snowflake size depends on the layer:
         float dist = sdSnowflake(c.yz * 8.0 * i);

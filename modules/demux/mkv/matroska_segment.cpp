@@ -56,9 +56,7 @@ matroska_segment_c::matroska_segment_c( demux_sys_t & demuxer, matroska_iostream
     ,b_cues(false)
     ,psz_muxing_application(NULL)
     ,psz_writing_application(NULL)
-    ,psz_segment_filename(NULL)
     ,psz_title(NULL)
-    ,psz_date_utc(NULL)
     ,i_default_edition(0)
     ,sys(demuxer)
     ,ep( EbmlParser(&estream, p_seg, &demuxer.demuxer ))
@@ -71,9 +69,7 @@ matroska_segment_c::~matroska_segment_c()
 {
     free( psz_writing_application );
     free( psz_muxing_application );
-    free( psz_segment_filename );
     free( psz_title );
-    free( psz_date_utc );
 
     delete segment;
     delete p_segment_uid;

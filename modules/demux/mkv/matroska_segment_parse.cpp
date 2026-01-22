@@ -80,9 +80,14 @@ static inline void fill_extra_data( mkv_track_t *p_tk, unsigned int offset )
 /*****************************************************************************
  * Some functions to manipulate memory
  *****************************************************************************/
+static inline const char * ToUTF8Const( const UTFstring &u )
+{
+    return u.GetUTF8().c_str();
+}
+
 static inline char * ToUTF8( const UTFstring &u )
 {
-    return strdup( u.GetUTF8().c_str() );
+    return strdup( ToUTF8Const(u) );
 }
 
 /*****************************************************************************
@@ -356,6 +361,7 @@ void matroska_segment_c::ParseTrackEntry( const KaxTrackEntry *m )
         }
         E_CASE( KaxTrackName, tname )
         {
+            free(vars.tk->fmt.psz_description);
             vars.tk->fmt.psz_description = ToUTF8( UTFstring( tname ) );
             debug( vars, "Track Name=%s", vars.tk->fmt.psz_description ? vars.tk->fmt.psz_description : "(null)" );
         }
@@ -1225,21 +1231,23 @@ void matroska_segment_c::ParseInfo( KaxInfo *info )
         }
         E_CASE( KaxMuxingApp, mapp )
         {
+            free(vars.obj->psz_muxing_application);
             vars.obj->psz_muxing_application = ToUTF8( UTFstring( mapp ) );
             debug( vars, "Muxing Application=%s", vars.obj->psz_muxing_application );
         }
         E_CASE( KaxWritingApp, wapp )
         {
+            free(vars.obj->psz_writing_application);
             vars.obj->psz_writing_application = ToUTF8( UTFstring( wapp ) );
             debug( vars, "Writing Application=%s", vars.obj->psz_writing_application );
         }
         E_CASE( KaxSegmentFilename, sfn )
         {
-            vars.obj->psz_segment_filename = ToUTF8( UTFstring( sfn ) );
-            debug( vars, "Segment Filename=%s", vars.obj->psz_segment_filename );
+            debug( vars, "Segment Filename=%s", ToUTF8Const( UTFstring( sfn ) ) );
         }
         E_CASE( KaxTitle, title )
         {
+            free(vars.obj->psz_title);
             vars.obj->psz_title = ToUTF8( UTFstring( title ) );
             debug( vars, "Title=%s", vars.obj->psz_title );
         }
@@ -1258,8 +1266,7 @@ void matroska_segment_c::ParseInfo( KaxInfo *info )
                 strftime( buffer, sizeof(buffer), "%a %b %d %H:%M:%S %Y",
                           &tmres ) )
             {
-                vars.obj->psz_date_utc = strdup( buffer );
-                debug( vars, "Date=%s", vars.obj->psz_date_utc );
+                debug( vars, "Date=%s", buffer );
             }
         }
         E_CASE( KaxChapterTranslate, trans )
@@ -2162,7 +2169,7 @@ bool matroska_segment_c::TrackInit( mkv_track_t * p_tk )
             if( unlikely( !p_realaudio ) )
                 throw std::runtime_error ("Cook_PrivateTrackData is NULL when handling A_REAL/28_8");
 
-            if( unlikely( p_realaudio->Init() ) )
+            if( unlikely( !p_realaudio->Init() ) )
                 throw std::runtime_error ("Cook_PrivateTrackData::Init() failed when handling A_REAL/28_8");
 
             if (i_codec == VLC_CODEC_COOK || i_codec == VLC_CODEC_ATRAC3)

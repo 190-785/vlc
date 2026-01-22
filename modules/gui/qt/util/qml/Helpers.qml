@@ -121,9 +121,7 @@ QtObject {
         else
             newContentY = flickable.contentY
 
-        return clamp(newContentY,
-                     flickable.originY - flickable.topMargin,
-                     flickable.originY + flickable.contentHeight - flickable.height + flickable.bottomMargin)
+        return getFlickableBoundedContentY(flickable, newContentY)
     }
 
     function isArray(obj) {
@@ -152,8 +150,50 @@ QtObject {
         const mappedRect = flickable.mapFromItem(item.parent, Qt.rect(item.x, item.y, item.width, item.height))
         // Flickable does not fully contain the item:
         if ((mappedRect.y < 0) || ((mappedRect.y + mappedRect.height) > flickable.height))
-            flickable.contentY = Math.min(Math.max(flickable.originY - flickable.topMargin,
-                                                   flickable.contentItem.mapFromItem(item.parent, item.x, item.y).y - Math.max(0, ((flickable.height - item.height) / 2))),
-                                          flickable.originY + flickable.contentHeight - flickable.height + flickable.bottomMargin)
+            flickable.contentY = getFlickableBoundedContentY(flickable,
+                                                             flickable.contentItem.mapFromItem(item.parent, item.x, item.y).y -
+                                                             Math.max(0, ((flickable.height - item.height) / 2)))
     }
+
+    function getFlickableBoundedContentX(flickable: Flickable, contentX: real) : real {
+        console.assert(flickable)
+        return clamp(contentX,
+                     estimateFlickableMinXExtent(flickable),
+                     estimateFlickableMaxXExtent(flickable))
+    }
+
+    function getFlickableBoundedContentY(flickable: Flickable, contentY: real) : real {
+        console.assert(flickable)
+        return clamp(contentY,
+                     estimateFlickableMinYExtent(flickable),
+                     estimateFlickableMaxYExtent(flickable))
+    }
+
+    /// <flickable-extents>
+
+    // FIXME: Get rid of this in favor of `QQuickFlickable::minXExtent()`:
+    function estimateFlickableMinXExtent(flickable: Flickable) : real {
+        console.assert(flickable)
+        return (flickable.originX - flickable.leftMargin)
+    }
+
+    // FIXME: Get rid of this in favor of `QQuickFlickable::minYExtent()`:
+    function estimateFlickableMinYExtent(flickable: Flickable) : real {
+        console.assert(flickable)
+        return (flickable.originY - flickable.topMargin)
+    }
+
+    // FIXME: Get rid of this in favor of `QQuickFlickable::maxXExtent()`:
+    function estimateFlickableMaxXExtent(flickable: Flickable) : real {
+        console.assert(flickable)
+        return (flickable.originX + flickable.contentWidth - flickable.width + flickable.rightMargin)
+    }
+
+    // FIXME: Get rid of this in favor of `QQuickFlickable::maxYExtent()`:
+    function estimateFlickableMaxYExtent(flickable: Flickable) : real {
+        console.assert(flickable)
+        return (flickable.originY + flickable.contentHeight - flickable.height + flickable.bottomMargin)
+    }
+
+    /// </flickable-extents>
 }

@@ -175,3 +175,5 @@ if dbus_dep.found()
         'dependencies' : [dbus_dep]
     }
 endif
+
+subdir('preparser_serializer')

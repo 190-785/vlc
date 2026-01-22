@@ -318,7 +318,7 @@ if [ -n "$BUILD_UCRT" ]; then
 
         if [ -n "$WINSTORE" ]; then
             # trick to provide these libraries instead of -ladvapi32 -lshell32 -luser32 -lkernel32
-            sed -i -e "s/-ladvapi32/-lwindowsapp -lwindowsappcompat/" $NEWSPECFILE
+            sed -i -e "s/-ladvapi32/-lwindowsapp/" $NEWSPECFILE
             sed -i -e "s/-lshell32//" $NEWSPECFILE
             sed -i -e "s/-luser32//" $NEWSPECFILE
             sed -i -e "s/-lkernel32//" $NEWSPECFILE
@@ -470,7 +470,7 @@ cd ../..
 MCONFIGFLAGS="-Dlua=enabled -Dflac=enabled -Dtheoradec=enabled -Dtheoraenc=enabled \
     -Davcodec=enabled -Dmerge-ffmpeg=true \
     -Dlibass=enabled -Dschroedinger=enabled -Dshout=enabled -Dgoom2=enabled \
-    -Dsse=enabled -Dlibcddb=enabled -Dzvbi=enabled -Dtelx=disabled $MCONFIGFLAGS"
+    -Dsse=enabled -Dzvbi=enabled -Dtelx=disabled $MCONFIGFLAGS"
 
 MCONFIGFLAGS="$MCONFIGFLAGS --prefer-static"
 if [ "$RELEASE" != "yes" ]; then

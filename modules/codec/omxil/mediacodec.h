@@ -30,7 +30,6 @@ typedef struct mc_api_out mc_api_out;
 
 typedef int (*pf_MediaCodecApi_init)(mc_api*);
 
-int MediaCodecJni_Init(mc_api*);
 int MediaCodecNdk_Init(mc_api*);
 
 #define MC_API_ERROR (-1)
@@ -120,7 +119,6 @@ union mc_api_args
     struct
     {
         void *p_surface;
-        void *p_jsurface;
         int i_width;
         int i_height;
         int i_angle;
@@ -187,10 +185,6 @@ struct mc_api
 
     /* render a buffer at a specified ts */
     int (*release_out_ts)(mc_api *, int i_index, int64_t i_ts_ns);
-
-    /* Dynamically sets the output surface
-     * Returns 0 on success, or MC_API_ERROR */
-    int (*set_output_surface)(mc_api*, void *p_surface, void *p_jsurface);
 };
 
 #endif

@@ -40,6 +40,10 @@ struct vlc_input_decoder_callbacks {
                             void *userdata);
     void (*on_vout_stopped)(vlc_input_decoder_t *decoder, vout_thread_t *vout,
                             void *userdata);
+    void (*on_output_paused)(vlc_input_decoder_t *decoder, bool paused,
+                             vlc_tick_t pause_date,
+                             void *userdata);
+
     void (*on_thumbnail_ready)(vlc_input_decoder_t *decoder, picture_t *pic,
                                void *userdata);
 
@@ -48,7 +52,15 @@ struct vlc_input_decoder_callbacks {
                                void *userdata);
     void (*on_new_audio_stats)(vlc_input_decoder_t *decoder, unsigned decoded,
                                unsigned lost, unsigned played, void *userdata);
-
+    void (*frame_next_status)(vlc_input_decoder_t *decoder, int status,
+                              void *userdata);
+    void (*frame_next_need_data)(vlc_input_decoder_t *decoder, bool need_data,
+                                 void *userdata);
+    void (*frame_previous_status)(vlc_input_decoder_t *decoder, int status,
+                                  void *userdata);
+    void (*frame_previous_seek)(vlc_input_decoder_t *decoder, vlc_tick_t pts,
+                                unsigned frame_rate, unsigned frame_rate_base,
+                                int steps, bool failed, void *userdata);
     /* requests */
     int (*get_attachments)(vlc_input_decoder_t *decoder,
                            input_attachment_t ***ppp_attachment,
@@ -110,6 +122,22 @@ void vlc_input_decoder_StopWait( vlc_input_decoder_t * );
 bool vlc_input_decoder_IsEmpty( vlc_input_decoder_t * );
 
 /**
+ * This function forces the display of the next picture
+ */
+void vlc_input_decoder_FrameNext( vlc_input_decoder_t *p_dec );
+
+/**
+ * This function forces the display of the previous picture
+ */
+void vlc_input_decoder_FramePrevious( vlc_input_decoder_t *p_dec );
+
+/*
+ * This function reset the decoder for normal playback after a previous or a
+ * next frame call.
+ */
+void vlc_input_decoder_StopFrameNext( vlc_input_decoder_t *p_dec );
+
+/**
  * This function Creates and adds the requested SubDec.
  *
  * The sub decoder returned by this function must be deleted with
@@ -119,11 +147,6 @@ vlc_input_decoder_t *
 vlc_input_decoder_CreateSubDec(vlc_input_decoder_t *dec,
                                const struct vlc_input_decoder_cfg *cfg);
 
-/**
- * This function forces the display of the next picture
- */
-void vlc_input_decoder_FrameNext( vlc_input_decoder_t *p_dec );
-
 struct vlc_subdec_desc
 {
     es_format_t *fmt_array;
@@ -131,6 +154,7 @@ struct vlc_subdec_desc
 };
 
 void vlc_subdec_desc_Clean(struct vlc_subdec_desc *desc);
+
 
 struct vlc_input_decoder_status
 {

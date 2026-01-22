@@ -32,56 +32,64 @@
 @property BOOL prevIsHighlighted;
 @property NSRect prevFrame;
 
+@property (readonly) NSDictionary<NSAttributedStringKey, id> *cachedTitleAttributes;
+@property (readonly) CGFloat cachedTitleHeight;
+
 @end
 
 @implementation VLCLibraryHomeViewActionButtonCell
 
-- (void)drawWithFrame:(NSRect)cellFrame inView:(NSView *)controlView
+- (NSRect)titleRectForBounds:(NSRect)bounds
 {
-    [NSColor.VLCSubtleBorderColor setStroke];
-    [NSColor.windowBackgroundColor setFill];
+    return bounds;
+}
 
-    const CGFloat cellMinX = NSMinX(cellFrame);
-    const CGFloat cellMinY = NSMinY(cellFrame);
-    const CGFloat cellMaxX = NSMaxX(cellFrame);
-    const CGFloat cellMaxY = NSMaxY(cellFrame);
+- (NSRect)imageRectForBounds:(NSRect)bounds
+{
+    return bounds;
+}
 
-    NSBezierPath * const separatorPath =
-        [NSBezierPath bezierPathWithRoundedRect:cellFrame
-                                        xRadius:VLCLibraryUIUnits.cornerRadius
-                                        yRadius:VLCLibraryUIUnits.cornerRadius];
-    separatorPath.lineWidth = VLCLibraryUIUnits.borderThickness;
-    [separatorPath stroke];
-    [separatorPath fill];
-
-    const CGSize cellSize = cellFrame.size;
-    const CGFloat cellWidth = cellSize.width;
-    const CGFloat cellHeight = cellSize.height;
-
+- (NSDictionary<NSAttributedStringKey, id> *)titleAttributes
+{
+    if (_cachedTitleAttributes) {
+        return _cachedTitleAttributes;
+    }
     NSMutableParagraphStyle * const titleParagraphStyle = [[NSMutableParagraphStyle alloc] init];
     titleParagraphStyle.alignment = NSTextAlignmentCenter;
-    NSDictionary<NSAttributedStringKey, id> * const titleAttributes = @{
+    _cachedTitleAttributes = @{
         NSForegroundColorAttributeName: NSColor.controlTextColor,
         NSFontAttributeName: NSFont.VLCLibrarySubsectionSubheaderFont,
         NSParagraphStyleAttributeName: titleParagraphStyle
     };
-    const NSSize titleSize = [self.title sizeWithAttributes:titleAttributes];
-    const CGFloat titleHeight = titleSize.height + VLCLibraryUIUnits.smallSpacing;
-    [self.title drawInRect:CGRectMake(cellMinX + VLCLibraryUIUnits.smallSpacing,
-                                      cellMaxY - titleHeight,
-                                      cellWidth - VLCLibraryUIUnits.smallSpacing * 2,
-                                      titleHeight)
-            withAttributes:titleAttributes];
+    return _cachedTitleAttributes;
+}
+
+- (CGFloat)titleHeightWithAttributes:(NSDictionary<NSAttributedStringKey, id> *)attributes
+{
+    if (_cachedTitleHeight) {
+        return _cachedTitleHeight;
+    }
+    const NSSize titleSize = [self.title sizeWithAttributes:attributes];
+    _cachedTitleHeight = titleSize.height + VLCLibraryUIUnits.smallSpacing;
+    return _cachedTitleHeight;
+}
+
+- (void)drawImage:(NSImage *)image withFrame:(NSRect)frame inView:(NSView *)controlView
+{
+    const CGSize cellSize = frame.size;
+    const CGFloat cellWidth = cellSize.width;
+    const CGFloat cellHeight = cellSize.height;
+    const CGFloat titleHeight = [self titleHeightWithAttributes:[self titleAttributes]];
 
     const CGSize imageSize = self.image.size;
 
     if (self.cachedImage != self.image ||
         self.prevIsHighlighted != self.isHighlighted ||
-        !NSEqualRects(self.prevFrame, cellFrame)) {
+        !NSEqualRects(self.prevFrame, frame)) {
 
         self.cachedImage = [NSImage imageWithSize:imageSize
                                           flipped:NO
-                                   drawingHandler:^BOOL(NSRect dstRect) {
+                                   drawingHandler:^BOOL(NSRect __unused dstRect) {
             if (self.isHighlighted) {
                 [NSColor.VLCSubtleBorderColor set];
             } else {
@@ -94,7 +102,7 @@
         }];
 
         self.prevIsHighlighted = self.isHighlighted;
-        self.prevFrame = cellFrame;
+        self.prevFrame = frame;
     } 
 
     const CGFloat originalImageAspectRatio = imageSize.width / imageSize.height;
@@ -111,12 +119,43 @@
         imageHeight = imageWidth / originalImageAspectRatio;
     }
 
-    const CGPoint cellOrigin = cellFrame.origin;
+    const CGPoint cellOrigin = frame.origin;
     const NSRect imageRect = NSMakeRect(cellOrigin.x + (cellWidth - imageWidth) / 2,
                                         cellOrigin.y + (cellHeight - imageHeight) / 2,
                                         imageWidth,
                                         imageHeight);
     [self.cachedImage drawInRect:imageRect];
+}
+
+- (NSRect)drawTitle:(NSAttributedString *)title withFrame:(NSRect)cellFrame inView:(NSView *)controlView
+{
+    const CGFloat cellMinX = NSMinX(cellFrame);
+    const CGFloat cellMaxY = NSMaxY(cellFrame);
+    const CGSize cellSize = cellFrame.size;
+    const CGFloat cellWidth = cellSize.width;
+
+    NSDictionary<NSAttributedStringKey, id> * const titleAttributes = [self titleAttributes];
+    const CGFloat titleHeight = [self titleHeightWithAttributes:titleAttributes];
+    const NSRect titleRect = CGRectMake(cellMinX + VLCLibraryUIUnits.smallSpacing,
+                                      cellMaxY - titleHeight,
+                                      cellWidth - VLCLibraryUIUnits.smallSpacing * 2,
+                                      titleHeight);
+    [self.title drawInRect:titleRect withAttributes:titleAttributes];
+    return titleRect;
+}
+
+- (void)drawBezelWithFrame:(NSRect)frame inView:(NSView *)controlView
+{
+    [NSColor.VLCSubtleBorderColor setStroke];
+    [NSColor.windowBackgroundColor setFill];
+
+    NSBezierPath * const separatorPath =
+        [NSBezierPath bezierPathWithRoundedRect:frame
+                                        xRadius:VLCLibraryUIUnits.cornerRadius
+                                        yRadius:VLCLibraryUIUnits.cornerRadius];
+    separatorPath.lineWidth = VLCLibraryUIUnits.borderThickness;
+    [separatorPath stroke];
+    [separatorPath fill];
 }
 
 @end

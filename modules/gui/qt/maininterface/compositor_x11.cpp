@@ -208,6 +208,8 @@ bool CompositorX11::makeMainInterface(MainCtx* mainCtx, std::function<void (QQui
     CompositorVideo::Flags flags = CompositorVideo::CAN_SHOW_PIP | HAS_ACRYLIC;
     if (m_renderWindow->supportExtendedFrame())
         flags |= CompositorVideo::HAS_EXTENDED_FRAME;
+    assert(m_qmlView->getOffscreenWindow());
+    m_qmlView->getOffscreenWindow()->create();
     if (!commonGUICreate(m_renderWindow.get(), m_qmlView.get(), flags))
         return false;
 
@@ -243,13 +245,13 @@ void CompositorX11::unloadGUI()
 
 void CompositorX11::onSurfacePositionChanged(const QPointF& position)
 {
-    m_renderWindow->setVideoPosition({static_cast<int>(position.x()), static_cast<int>(position.y())});
+    m_pendingPosition = QPoint{static_cast<int>(position.x()), static_cast<int>(position.y())};
 }
 
 void CompositorX11::onSurfaceSizeChanged(const QSizeF& size)
 {
     const QSizeF area = (size / m_videoWidget->window()->devicePixelRatioF());
-    m_renderWindow->setVideoSize({static_cast<int>(std::ceil(area.width())), static_cast<int>(std::ceil(area.height()))});
+    m_pendingSize = QSize{static_cast<int>(std::ceil(area.width())), static_cast<int>(std::ceil(area.height()))};
 }
 
 bool CompositorX11::setupVoutWindow(vlc_window_t* p_wnd, VoutDestroyCb destroyCb)
@@ -282,6 +284,12 @@ QQuickWindow *CompositorX11::quickWindow() const
 QQuickItem * CompositorX11::activeFocusItem() const /* override */
 {
     return m_qmlView->activeFocusItem();
+}
+
+void CompositorX11::commitSurface()
+{
+    if (m_renderWindow)
+        m_renderWindow->setVideoGeometry(m_pendingPosition, m_pendingSize);
 }
 
 ///////// DummyNativeWidget

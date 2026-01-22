@@ -73,7 +73,8 @@ static int DecodeBlock( decoder_t *p_dec, block_t *p_block )
 
 error:
     block_Release( p_block );
-    decoder_QueueVideo( p_dec, p_pic );
+    if ( p_pic )
+        decoder_QueueVideo( p_dec, p_pic );
     return VLCDEC_SUCCESS;
 }
 
@@ -102,7 +103,8 @@ static block_t *EncodeVideo( encoder_t *p_enc, picture_t *p_pict )
 {
     (void)p_pict;
     block_t * p_block = block_Alloc( kBufferSize );
-
+    if (unlikely(!p_block))
+      return NULL;
     vlc_tick_t now = vlc_tick_now();
     memcpy(p_block->p_buffer, &now, sizeof(vlc_tick_t));
     p_block->i_buffer = kBufferSize;

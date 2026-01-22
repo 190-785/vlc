@@ -18,6 +18,7 @@ player_programs = \
 	test_src_player_lifecycle \
 	test_src_player_loudness \
 	test_src_player_media \
+	test_src_player_next_prev \
 	test_src_player_outputs \
 	test_src_player_pause \
 	test_src_player_programs \
@@ -52,6 +53,7 @@ check_PROGRAMS = \
 	test_src_misc_variables \
 	test_src_input_stream \
 	test_src_input_stream_fifo \
+	test_src_preparser_cmp_internal_external \
 	test_src_preparser_thumbnail \
 	test_src_preparser_thumbnail_to_files \
 	test_src_input_decoder \
@@ -213,6 +215,8 @@ test_src_input_stream_net_CFLAGS = $(AM_CFLAGS) -DTEST_NET
 test_src_input_stream_net_LDADD = $(LIBVLCCORE) $(LIBVLC)
 test_src_input_stream_fifo_SOURCES = src/input/stream_fifo.c
 test_src_input_stream_fifo_LDADD = $(LIBVLCCORE) $(LIBVLC)
+test_src_preparser_cmp_internal_external_SOURCES = src/preparser/cmp_internal_external.c
+test_src_preparser_cmp_internal_external_LDADD = $(LIBVLCCORE) $(LIBVLC)
 test_src_preparser_thumbnail_SOURCES = src/preparser/thumbnail.c
 test_src_preparser_thumbnail_LDADD = $(LIBVLCCORE) $(LIBVLC)
 test_src_preparser_thumbnail_to_files_SOURCES = src/preparser/thumbnail_to_files.c
@@ -247,6 +251,9 @@ test_src_player_loudness_LDADD = $(LIBVLCCORE) $(LIBVLC) $(LIBM)
 test_src_player_media_SOURCES = src/player/common.h src/player/modules.c \
 	src/player/media.c
 test_src_player_media_LDADD = $(LIBVLCCORE) $(LIBVLC) $(LIBM)
+test_src_player_next_prev_SOURCES = src/player/common.h src/player/modules.c \
+	src/player/next_prev.c
+test_src_player_next_prev_LDADD = $(LIBVLCCORE) $(LIBVLC) $(LIBM)
 test_src_player_outputs_SOURCES = src/player/common.h src/player/modules.c \
 	src/player/outputs.c
 test_src_player_outputs_LDADD = $(LIBVLCCORE) $(LIBVLC) $(LIBM)

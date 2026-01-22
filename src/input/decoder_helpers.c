@@ -34,6 +34,8 @@
 #include <vlc_picture.h>
 #include "../libvlc.h"
 
+#include <stdckdint.h>
+
 void decoder_Init( decoder_t *p_dec, es_format_t *restrict fmt_in, const es_format_t *restrict p_fmt )
 {
     p_dec->i_extra_picture_buffers = 0;
@@ -154,14 +156,37 @@ int decoder_UpdateVideoOutput( decoder_t *dec, vlc_video_context *vctx_out )
     vlc_ureduce( &dec->fmt_out.video.i_sar_num, &dec->fmt_out.video.i_sar_den,
                     dec->fmt_out.video.i_sar_num, dec->fmt_out.video.i_sar_den, 50000 );
 
+    unsigned int v;
     if( vlc_fourcc_IsYUV( dec->fmt_out.video.i_chroma ) )
     {
         for( unsigned int i = 0; dsc && i < dsc->plane_count; i++ )
         {
-            while( dec->fmt_out.video.i_width % dsc->p[i].w.den )
-                dec->fmt_out.video.i_width++;
-            while( dec->fmt_out.video.i_height % dsc->p[i].h.den )
-                dec->fmt_out.video.i_height++;
+            unsigned int extra_padding;
+            extra_padding = dec->fmt_out.video.i_width % dsc->p[i].w.den;
+            if (extra_padding != 0)
+            {
+                if (unlikely(ckd_add(&v, dec->fmt_out.video.i_width, dsc->p[i].w.den - extra_padding)))
+                {
+                    msg_Err( dec, "Cannot add %u to the decoder width %u",
+                                  dsc->p[i].w.den - extra_padding,
+                                  dec->fmt_out.video.i_width );
+                    return -1;
+                }
+                dec->fmt_out.video.i_width = v;
+            }
+
+            extra_padding = dec->fmt_out.video.i_height % dsc->p[i].h.den;
+            if (extra_padding != 0)
+            {
+                if (unlikely(ckd_add(&v, dec->fmt_out.video.i_height, dsc->p[i].h.den - extra_padding)))
+                {
+                    msg_Err( dec, "Cannot add %u to the decoder height %u",
+                                  dsc->p[i].h.den - extra_padding,
+                                  dec->fmt_out.video.i_height );
+                    return -1;
+                }
+                dec->fmt_out.video.i_height = v;
+            }
         }
     }
 
@@ -184,6 +209,9 @@ int decoder_UpdateVideoOutput( decoder_t *dec, vlc_video_context *vctx_out )
             dec->fmt_out.video.i_y_offset       = 0;
         }
     }
+
+    assert(!ckd_add(&v, dec->fmt_out.video.i_visible_width,  dec->fmt_out.video.i_x_offset) && v <= dec->fmt_out.video.i_width);
+    assert(!ckd_add(&v, dec->fmt_out.video.i_visible_height, dec->fmt_out.video.i_y_offset) && v <= dec->fmt_out.video.i_height);
 
     video_format_AdjustColorSpace( &dec->fmt_out.video );
 

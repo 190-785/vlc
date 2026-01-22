@@ -138,6 +138,8 @@ struct report_media_attachments
     X(input_item_t *, on_media_epg_changed) \
     X(struct report_media_subitems, on_media_subitems_changed) \
     X(struct report_media_attachments, on_media_attachments_added) \
+    X(int, on_next_frame_status) \
+    X(int, on_prev_frame_status)
 
 struct report_aout_first_pts
 {
@@ -589,6 +591,20 @@ player_on_media_attachments_added(vlc_player_t *player,
     VEC_PUSH(on_media_attachments_added, report);
 }
 
+static inline void
+player_on_next_frame_status(vlc_player_t *player, int status, void *data)
+{
+    struct ctx *ctx = get_ctx(player, data);
+    VEC_PUSH(on_next_frame_status, status);
+}
+
+static inline void
+player_on_prev_frame_status(vlc_player_t *player, int status, void *data)
+{
+    struct ctx *ctx = get_ctx(player, data);
+    VEC_PUSH(on_prev_frame_status, status);
+}
+
 #define VEC_LAST(vec) (vec)->data[(vec)->size - 1]
 #define assert_position(ctx, report) do { \
     assert(fabs((report)->pos - (report)->time / (float) ctx->params.length) < 0.001); \
@@ -784,7 +800,7 @@ create_mock_media(const char *name, const struct media_params *params)
         "video_frame_rate=%u;video_frame_rate_base=%u;"
         "title_count=%zu;chapter_count=%zu;"
         "can_seek=%d;can_pause=%d;error=%d;null_names=%d;"
-        "report_length=%d;ts_delay=%"PRId64";"
+        "report_length=%d;pts_delay=%"PRId64";"
         "config=%s;discontinuities=%s;attachment_count=%zu",
         params->track_count[VIDEO_ES], params->track_count[AUDIO_ES],
         params->track_count[SPU_ES], params->program_count,

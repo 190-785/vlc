@@ -112,9 +112,9 @@ void VideoSurfaceProvider::onSurfacePropertiesChanged(const std::optional<QSizeF
                                                       const std::optional<QPointF>& position,
                                                       const std::optional<qreal>& scale)
 {
+    emit surfacePropertiesChanged(size, position, scale);
     if (m_voutWindow && size)
         vlc_window_ReportSize(m_voutWindow, std::ceil(size->width()), std::ceil(size->height()));
-    emit surfacePropertiesChanged(size, position, scale);
 }
 
 
@@ -428,6 +428,19 @@ QSGNode *VideoSurface::updatePaintNode(QSGNode *node, UpdatePaintNodeData *data)
     {
         m_allDirty = true;
         m_videoEnabledChanged = false;
+    }
+
+    if (QThread::currentThread() == thread())
+    {
+        // As per `::synchronize()` we do not need `ViewBlockingRectangle` to provide the render position in this case:
+        setUpdateRenderPosition(false);
+        // Override `ViewBlockingRectangle`'s `ItemHasContents`, if it is unset (when both `renderEnabled` and
+        // `updateRenderPosition()` are false):
+        setFlag(ItemHasContents, true);
+    }
+    else
+    {
+        setUpdateRenderPosition(true);
     }
 
     return ViewBlockingRectangle::updatePaintNode(node, data);

@@ -134,6 +134,9 @@ typedef enum input_event_type_e
     /* A vout_thread_t object has been created/deleted by *the input* */
     INPUT_EVENT_VOUT,
 
+    /* The output state changed (paused or resumed) */
+    INPUT_EVENT_OUTPUT_STATE,
+
     /* (pre-)parsing events */
     INPUT_EVENT_SUBITEMS,
 
@@ -156,6 +159,11 @@ typedef enum input_event_type_e
 
     /* Mouse event */
     INPUT_EVENT_MOUSE_LEFT,
+
+    /* frame-next status */
+    INPUT_EVENT_FRAME_NEXT_STATUS,
+    /* frame-previous status */
+    INPUT_EVENT_FRAME_PREVIOUS_STATUS,
 } input_event_type_e;
 
 #define VLC_INPUT_CAPABILITIES_SEEKABLE (1<<0)
@@ -273,6 +281,16 @@ struct vlc_input_event_vout
     vlc_es_id_t *id;
 };
 
+struct vlc_input_event_output_state
+{
+    enum {
+        VLC_INPUT_EVENT_OUTPUT_STATE_RESUMED,
+        VLC_INPUT_EVENT_OUTPUT_STATE_PAUSED,
+    } action;
+    vlc_tick_t paused_date;
+    vlc_es_id_t *id;
+};
+
 struct vlc_input_event_attachments
 {
     input_attachment_t *const* array;
@@ -318,6 +336,8 @@ struct vlc_input_event
         float cache;
         /* INPUT_EVENT_VOUT */
         struct vlc_input_event_vout vout;
+        /* INPUT_EVENT_OUTPUT_STATE */
+        struct vlc_input_event_output_state output_state;
         /* INPUT_EVENT_SUBITEMS */
         input_item_node_t *subitems;
         /* INPUT_EVENT_VBI_PAGE */
@@ -332,6 +352,10 @@ struct vlc_input_event
         struct vlc_input_event_attachments attachments;
         /* INPUT_EVENT_NAV_FAILED */
         int nav_type;
+        /* INPUT_EVENT_FRAME_NEXT_STATUS */
+        int frame_next_status;
+        /* INPUT_EVENT_FRAME_PREVIOUS_STATUS */
+        int frame_previous_status;
     };
 };
 
@@ -449,6 +473,14 @@ typedef union
         bool enabled;
         char *dir_path;
     } record_state;
+    struct
+    {
+        vlc_tick_t pts;
+        unsigned frame_rate;
+        unsigned frame_rate_base;
+        int steps;
+        bool failed;
+    } frame_previous_seek;
 } input_control_param_t;
 
 typedef struct
@@ -527,6 +559,14 @@ typedef struct input_thread_private_t
 
     vlc_thread_t thread;
     vlc_interrupt_t interrupt;
+
+    struct {
+        vlc_tick_t last_pts;
+        bool enabled;
+        bool end;
+    } prev_frame;
+
+    bool next_frame_need_data;
 } input_thread_private_t;
 
 static inline input_thread_private_t *input_priv(input_thread_t *input)
@@ -588,6 +628,9 @@ enum input_control_e
     INPUT_CONTROL_SET_RECORD_STATE,
 
     INPUT_CONTROL_SET_FRAME_NEXT,
+    INPUT_CONTROL_SET_FRAME_PREVIOUS,
+    INPUT_CONTROL_NEED_DATA_FRAME_NEXT,
+    INPUT_CONTROL_SEEK_FRAME_PREVIOUS,
 
     INPUT_CONTROL_SET_RENDERER,
 

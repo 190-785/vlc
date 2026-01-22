@@ -41,13 +41,13 @@ FocusScope {
     readonly property int positionSliderY: controlBar.y + controlBar.sliderY
 
     readonly property string coverSource: {
-        if (MainPlaylistController.currentItem.artwork &&
-            MainPlaylistController.currentItem.artwork.toString())
-            MainPlaylistController.currentItem.artwork
+        if (Player.artwork &&
+            Player.artwork.toString())
+            return Player.artwork
         else if (Player.hasVideoOutput)
-            VLCStyle.noArtVideoCover
+            return VLCStyle.noArtVideoCover
         else
-            VLCStyle.noArtAlbumCover
+            return VLCStyle.noArtAlbumCover
     }
 
     // Private
@@ -195,6 +195,12 @@ FocusScope {
 
                     anchors.fill: parent
 
+                    // With regard to `ViewBlockingRectangle`, we
+                    // do not need to prevent painting anything
+                    // behind because there is already nothing
+                    // behind (unlike pip player):
+                    renderingEnabled: false
+
                     videoSurfaceProvider: MainCtx.videoSurfaceProvider
 
                     visible: MainCtx.hasEmbededVideo
@@ -277,7 +283,9 @@ FocusScope {
                 // background image
                 Rectangle {
                     focus: false
-                    color: bgtheme.bg.primary
+                    // NOTE: Rectangle has an optimization that it does not use a scene graph node if the color is transparent.
+                    color: blurredBackground.available ? "transparent" // background coloring in blur effect is used otherwise
+                                                       : bgtheme.bg.primary
                     anchors.fill: parent
 
                     readonly property ColorContext colorContext: ColorContext {
@@ -304,6 +312,7 @@ FocusScope {
                         postprocess: true
                         tint: bgtheme.palette.isDark ? "black" : "white"
                         tintStrength: 0.5
+                        backgroundColor: bgtheme.bg.primary
 
                         // The window naturally clips the content, but having this saves some
                         // video memory, depending on the excess content in the last layer:
@@ -479,7 +488,7 @@ FocusScope {
                                 value: centerContent.height > (albumLabel.y + albumLabel.height)
                             }
 
-                            text: MainPlaylistController.currentItem.album
+                            text: Player.album
                             font.pixelSize: VLCStyle.fontSize_xxlarge
                             horizontalAlignment: Text.AlignHCenter
                             color: centerTheme.fg.primary
@@ -504,7 +513,7 @@ FocusScope {
                                 value: centerContent.height > (artistLabel.y + artistLabel.height)
                             }
 
-                            text: MainPlaylistController.currentItem.artist
+                            text: Player.artist
                             font.weight: Font.Light
                             horizontalAlignment: Text.AlignHCenter
                             color: centerTheme.fg.primary
@@ -629,7 +638,7 @@ FocusScope {
                   resumeVisible)
 
         focus: true
-        title: MainPlaylistController.currentItem.title
+        title: Player.title
 
         pinControls: MainCtx.pinVideoControls
 

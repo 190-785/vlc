@@ -47,16 +47,6 @@ enum AWindow_ID {
     AWindow_Max,
 };
 
-/**
- * native_window_api_t. See android/native_window.h in NDK
- */
-typedef struct
-{
-    int32_t (*winLock)(ANativeWindow*, ANativeWindow_Buffer*, ARect*);
-    void (*unlockAndPost)(ANativeWindow*);
-    int32_t (*setBuffersGeometry)(ANativeWindow*, int32_t, int32_t, int32_t); /* can be NULL */
-} native_window_api_t;
-
 struct awh_mouse_coords
 {
     int i_action;
@@ -133,22 +123,6 @@ void AWindowHandler_destroy(AWindowHandler *p_awh);
 AWindowHandler *
 AWindowHandler_newFromANWs(vlc_object_t *obj, ANativeWindow *video,
                            ANativeWindow *subtitle);
-
-/**
- * Get the public native window API
- *
- * Used to access the public ANativeWindow API.
- * \return a valid native_window_api_t. It doesn't need to be released.
- */
-native_window_api_t *AWindowHandler_getANativeWindowAPI(AWindowHandler *p_awh);
-
-/**
- * Get the Video or the Subtitles Android Surface
- *
- * \return the surface in a jobject, or NULL. It should be released with
- * AWindowHandler_releaseANativeWindow() or AWindowHandler_destroy().
- */
-jobject AWindowHandler_getSurface(AWindowHandler *p_awh, enum AWindow_ID id);
 
 /**
  * Get the Video or the Subtitles ANativeWindow

@@ -477,17 +477,35 @@ vlc_player_Resume(vlc_player_t *player);
 /**
  * Pause and display the next video frame
  *
+ * @note Works only on streams that can pause..
+ *
+ * @note listen to the vlc_player_cbs.on_next_frame_status to be notified when
+ * the next frame is displayed.
+ *
  * @param player locked player instance
  */
 VLC_API void
 vlc_player_NextVideoFrame(vlc_player_t *player);
 
 /**
+ * Pause and display the previous video frame
+ *
+ * @note Works only on streams that can pause, seek and pace.
+ *
+ * @note listen to the vlc_player_cbs.on_prev_frame_status to be notified when
+ * the previous frame is displayed.
+ *
+ * @param player locked player instance
+ */
+VLC_API void
+vlc_player_PreviousVideoFrame(vlc_player_t *player);
+
+/**
  * Get the state of the player
  *
  * @note Since all players actions are asynchronous, this function won't
  * reflect the new state immediately. Wait for the
- * vlc_players_cbs.on_state_changed event to be notified.
+ * vlc_player_cbs.on_state_changed event to be notified.
  *
  * @see vlc_player_state
  * @see vlc_player_cbs.on_state_changed
@@ -2621,7 +2639,7 @@ struct vlc_player_vout_cbs
  * Get and hold the main video output
  *
  * @warning the returned vout_thread_t * must be released with vout_Release().
- * @see vlc_players_cbs.on_vout_changed
+ * @see vlc_player_cbs.on_vout_changed
  *
  * @note The player is guaranteed to always hold one valid vout. Only vout
  * variables can be changed from this instance. The vout returned before
@@ -2639,7 +2657,7 @@ vlc_player_vout_Hold(vlc_player_t *player);
  * @warning All vout_thread_t * element of the array must be released with
  * vout_Release(). The returned array must be freed.
  *
- * @see vlc_players_cbs.on_vout_changed
+ * @see vlc_player_cbs.on_vout_changed
  *
  * @param player player instance
  * @param count valid pointer to store the array count
@@ -3317,6 +3335,35 @@ struct vlc_player_cbs
     void (*on_stopping_current_media)(vlc_player_t *player, input_item_t *current_media,
                                       enum vlc_player_media_stopping_reason stopping_reason,
                                       void *data);
+
+    /**
+     * Called when the next frame, following a call to
+     * `vlc_player_NextVideoFrame()`, is displayed.
+     *
+     * @see vlc_player_NextVideoFrame()
+     *
+     * @param player locked player instance
+     * @param status 0 in case of success, -EAGAIN on first call (paused),
+     * -EBUSY in case of video error, -ENOTSUP if can't pause,
+     * -EINVAL in case of invalid state
+     */
+    void (*on_next_frame_status)(vlc_player_t *player, int status, void *data);
+
+    /**
+    * Called when the previous frame, following a call to
+    * `vlc_player_PreviousVideoFrame()`, is displayed.
+    *
+    * @see vlc_player_PreviousVideoFrame()
+    *
+    * @param player locked player instance
+    * @param status 0 in case of success,
+    * -EAGAIN on first call (paused) or on first frame,
+    * -EBUSY in case of video error,
+    * -ENOTSUP if can't pause/seek/pace,
+    * -EINVAL in case of invalid state,
+    * -ERANGE if the player could not seek back
+    */
+    void (*on_prev_frame_status)(vlc_player_t *player, int status, void *data);
 };
 
 /**
@@ -3478,7 +3525,7 @@ struct vlc_player_timer_smpte_cbs
 {
     /**
      * Called when a new frame is displayed
-
+     *
      * @warning The player is not locked from this callback. It is forbidden
      * to call any player functions from here.
      *
@@ -3488,6 +3535,31 @@ struct vlc_player_timer_smpte_cbs
      */
     void (*on_update)(const struct vlc_player_timer_smpte_timecode *tc,
                       void *data);
+
+    /**
+     * The player timer is paused (can be NULL).
+     *
+     * @see vlc_player_timer_cbs.on_paused
+     */
+    void (*on_paused)(vlc_tick_t system_date, void *data);
+
+    /**
+     * Called when the player is seeking or finished seeking (can be NULL).
+     *
+     * @warning The player is not locked from this callback. It is forbidden
+     * to call any player functions from here.
+     *
+     * @warning the value is parameter is a timestamp point and not a timecode,
+     * as this is an approximation.
+     *
+     * @note on_update() can be called when seeking. It corresponds to tracks
+     * updating their points prior to receiving the asynchronous seek event.
+     * The user could discard them manually.
+     *
+     * @param value point of the seek request or NULL when seeking is finished
+     * @param data opaque pointer set by vlc_player_AddTimer()
+     */
+    void (*on_seek)(const struct vlc_player_timer_point *value, void *data);
 };
 
 /**

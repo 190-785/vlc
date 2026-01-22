@@ -56,7 +56,7 @@ libqt_plugin_la_CXXFLAGS += -DQT_HAS_LIBATOMIC
 libqt_plugin_la_LIBADD += -latomic
 endif
 libqt_plugin_la_LDFLAGS = $(AM_LDFLAGS) $(QT_LDFLAGS)
-if HAVE_DARWIN
+if HAVE_OSX
 libqt_plugin_la_LDFLAGS += -Wl,-framework,Cocoa
 endif
 
@@ -1307,7 +1307,8 @@ libqml_module_widgets_a_QML = \
 	widgets/qml/RadioButtonExt.qml \
 	widgets/qml/RoundedRectangleShadow.qml \
 	widgets/qml/VoronoiSnow.qml \
-	widgets/qml/DualKawaseBlur.qml
+	widgets/qml/DualKawaseBlur.qml \
+	widgets/qml/CheckBoxExt.qml
 nodist_libqml_module_widgets_a_SOURCES = widgets_qmlassets.cpp
 $(libqml_module_widgets_a_QML:.qml=.cpp) : $(builddir)/widgets/res.qrc
 $(libqml_module_widgets_a_QML:.qml=.cpp) : QML_CACHEGEN_ARGS=--resource=$(builddir)/widgets/res.qrc
@@ -1586,11 +1587,15 @@ gui_LTLIBRARIES += libqt_plugin.la
 BUILT_SOURCES += $(nodist_libqt_plugin_la_SOURCES)
 if !HAVE_WIN32
 if !HAVE_OS2
+if !HAVE_IOS_OR_TVOS
+if !HAVE_XROS
 pkglibexec_PROGRAMS = vlc-qt-check
 all-local: $(builddir)/../../vlc-qt-check
 
 $(builddir)/../../vlc-qt-check: vlc-qt-check
 	$(AM_V_GEN)cd ../../ && $(LN_S) -f gui/qt/vlc-qt-check . && chmod +x vlc-qt-check
+endif
+endif
 endif
 endif
 
@@ -1609,7 +1614,7 @@ TESTS = base_model_test
 
 if HAVE_QT_QTEST
 
-LIBVLC = -L../../../lib -lvlc
+LIBVLC = ../../../lib/libvlc.la
 QT_QTEST_COMMON_cppflags = $(libqt_plugin_la_CPPFLAGS) -I$(builddir)/tests -DTOP_BUILDDIR=\"$(abs_top_builddir)\"
 QT_QTEST_COMMON_cxxflags = $(AM_CXXFLAGS) $(QT_CFLAGS) $(QT_QTEST_CFLAGS) -fPIC $(CXXFLAGS_qt)
 QT_QTEST_COMMON_ldadd = $(QT_LIBS) $(LIBS_qt) $(QT_QTEST_LIBS) $(LIBVLCCORE) $(LIBVLC)

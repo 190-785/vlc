@@ -3,7 +3,7 @@ project('VLC', ['c', 'cpp'],
     default_options: ['c_std=gnu17', 'cpp_std=c++17'],
     meson_version: '>=1.1.0')
 
-vlc_copyright_years = '1996-2025'
+vlc_copyright_years = '1996-2026'
 vlc_version_codename = 'Otto Chriek'
 
 # LibVLC library (ABI) version
@@ -462,8 +462,6 @@ ucrt_version_test = '''
     # Check if we are building for Windows Store
     if get_option('winstore_app')
         have_win_store = true
-        windowsappcompat_lib = cc.find_library('windowsappcompat')
-        add_project_dependencies(windowsappcompat_lib, language: ['c', 'cpp'])
     else
         have_win_desktop = true
     endif

@@ -194,6 +194,7 @@ struct vlc_player_timer_source
     struct vlc_list listeners; /* list of struct vlc_player_timer_id */
     vlc_es_id_t *es; /* weak reference */
     struct vlc_player_timer_point point;
+    bool seeking;
     union
     {
         struct {
@@ -229,9 +230,13 @@ struct vlc_player_timer
 
     vlc_tick_t seek_ts;
     double seek_position;
-    bool paused;
+    enum
+    {
+        UPDATE_STATE_RESUMED,
+        UPDATE_STATE_PAUSED,
+        UPDATE_STATE_RESUMING,
+    } update_state;
     bool stopping;
-    bool seeking;
 
     struct vlc_player_timer_source sources[VLC_PLAYER_TIMER_TYPE_COUNT];
 #define best_source sources[VLC_PLAYER_TIMER_TYPE_BEST]
@@ -328,6 +333,18 @@ vlc_player_get_input_locked(vlc_player_t *player)
     { \
         if (listener->cbs->event) \
             listener->cbs->event(player, ##__VA_ARGS__, listener->cbs_data); \
+    } \
+} while(0)
+
+#define vlc_player_SendEventCount(player, event, count, ...) do { \
+    vlc_player_listener_id *listener; \
+    count = 0; \
+    vlc_list_foreach(listener, &player->listeners, node) \
+    { \
+        if (listener->cbs->event) { \
+            listener->cbs->event(player, ##__VA_ARGS__, listener->cbs_data); \
+            count++; \
+        } \
     } \
 } while(0)
 

@@ -55,181 +55,6 @@ char* MediaCodec_GetName(vlc_object_t *p_obj, vlc_fourcc_t codec,
  * buffers and not via "csd-*" buffers from AMediaFormat */
 #define AMEDIACODEC_FLAG_CODEC_CONFIG 2
 
-/*****************************************************************************
- * NdkMediaCodec.h
- *****************************************************************************/
-
-/* cf. https://github.com/android-ndk/ndk/issues/459 */
-#if defined(__USE_FILE_OFFSET64) && !defined(__LP64__)
-#define off_t_compat int32_t
-#else
-#define off_t_compat off_t
-#endif
-
-/*****************************************************************************
- * Ndk symbols
- *****************************************************************************/
-
-typedef AMediaCodec* (*pf_AMediaCodec_createCodecByName)(const char *name);
-
-typedef media_status_t (*pf_AMediaCodec_configure)(AMediaCodec*,
-        const AMediaFormat* format,
-        ANativeWindow* surface,
-        AMediaCrypto *crypto,
-        uint32_t flags);
-
-typedef media_status_t (*pf_AMediaCodec_start)(AMediaCodec*);
-
-typedef media_status_t (*pf_AMediaCodec_stop)(AMediaCodec*);
-
-typedef media_status_t (*pf_AMediaCodec_flush)(AMediaCodec*);
-
-typedef media_status_t (*pf_AMediaCodec_delete)(AMediaCodec*);
-
-typedef AMediaFormat* (*pf_AMediaCodec_getOutputFormat)(AMediaCodec*);
-
-typedef ssize_t (*pf_AMediaCodec_dequeueInputBuffer)(AMediaCodec*,
-        int64_t timeoutUs);
-
-typedef uint8_t* (*pf_AMediaCodec_getInputBuffer)(AMediaCodec*,
-        size_t idx, size_t *out_size);
-
-typedef media_status_t (*pf_AMediaCodec_queueInputBuffer)(AMediaCodec*,
-        size_t idx, off_t_compat offset, size_t size, uint64_t time, uint32_t flags);
-
-typedef ssize_t (*pf_AMediaCodec_dequeueOutputBuffer)(AMediaCodec*,
-        AMediaCodecBufferInfo *info, int64_t timeoutUs);
-
-typedef uint8_t* (*pf_AMediaCodec_getOutputBuffer)(AMediaCodec*,
-        size_t idx, size_t *out_size);
-
-typedef media_status_t (*pf_AMediaCodec_releaseOutputBuffer)(AMediaCodec*,
-        size_t idx, bool render);
-
-typedef media_status_t (*pf_AMediaCodec_releaseOutputBufferAtTime)(AMediaCodec*,
-        size_t idx, int64_t timestampNs);
-
-typedef media_status_t (*pf_AMediaCodec_setOutputSurface)(AMediaCodec*,
-        ANativeWindow *surface);
-
-typedef AMediaFormat *(*pf_AMediaFormat_new)();
-typedef media_status_t (*pf_AMediaFormat_delete)(AMediaFormat*);
-
-typedef void (*pf_AMediaFormat_setString)(AMediaFormat*,
-        const char* name, const char* value);
-
-typedef void (*pf_AMediaFormat_setInt32)(AMediaFormat*,
-        const char* name, int32_t value);
-
-typedef bool (*pf_AMediaFormat_getInt32)(AMediaFormat*,
-        const char *name, int32_t *out);
-
-struct syms
-{
-    struct {
-        pf_AMediaCodec_createCodecByName createCodecByName;
-        pf_AMediaCodec_configure configure;
-        pf_AMediaCodec_start start;
-        pf_AMediaCodec_stop stop;
-        pf_AMediaCodec_flush flush;
-        pf_AMediaCodec_delete delete;
-        pf_AMediaCodec_getOutputFormat getOutputFormat;
-        pf_AMediaCodec_dequeueInputBuffer dequeueInputBuffer;
-        pf_AMediaCodec_getInputBuffer getInputBuffer;
-        pf_AMediaCodec_queueInputBuffer queueInputBuffer;
-        pf_AMediaCodec_dequeueOutputBuffer dequeueOutputBuffer;
-        pf_AMediaCodec_getOutputBuffer getOutputBuffer;
-        pf_AMediaCodec_releaseOutputBuffer releaseOutputBuffer;
-        pf_AMediaCodec_releaseOutputBufferAtTime releaseOutputBufferAtTime;
-        pf_AMediaCodec_setOutputSurface setOutputSurface;
-    } AMediaCodec;
-    struct {
-        pf_AMediaFormat_new new;
-        pf_AMediaFormat_delete delete;
-        pf_AMediaFormat_setString setString;
-        pf_AMediaFormat_setInt32 setInt32;
-        pf_AMediaFormat_getInt32 getInt32;
-    } AMediaFormat;
-};
-static struct syms syms;
-
-struct members
-{
-    const char *name;
-    int offset;
-    bool critical;
-};
-static struct members members[] =
-{
-#define OFF(x) offsetof(struct syms, AMediaCodec.x)
-    { "AMediaCodec_createCodecByName", OFF(createCodecByName), true },
-    { "AMediaCodec_configure", OFF(configure), true },
-    { "AMediaCodec_start", OFF(start), true },
-    { "AMediaCodec_stop", OFF(stop), true },
-    { "AMediaCodec_flush", OFF(flush), true },
-    { "AMediaCodec_delete", OFF(delete), true },
-    { "AMediaCodec_getOutputFormat", OFF(getOutputFormat), true },
-    { "AMediaCodec_dequeueInputBuffer", OFF(dequeueInputBuffer), true },
-    { "AMediaCodec_getInputBuffer", OFF(getInputBuffer), true },
-    { "AMediaCodec_queueInputBuffer", OFF(queueInputBuffer), true },
-    { "AMediaCodec_dequeueOutputBuffer", OFF(dequeueOutputBuffer), true },
-    { "AMediaCodec_getOutputBuffer", OFF(getOutputBuffer), true },
-    { "AMediaCodec_releaseOutputBuffer", OFF(releaseOutputBuffer), true },
-    { "AMediaCodec_releaseOutputBufferAtTime", OFF(releaseOutputBufferAtTime), true },
-    { "AMediaCodec_setOutputSurface", OFF(setOutputSurface), false },
-#undef OFF
-#define OFF(x) offsetof(struct syms, AMediaFormat.x)
-    { "AMediaFormat_new", OFF(new), true },
-    { "AMediaFormat_delete", OFF(delete), true },
-    { "AMediaFormat_setString", OFF(setString), true },
-    { "AMediaFormat_setInt32", OFF(setInt32), true },
-    { "AMediaFormat_getInt32", OFF(getInt32), true },
-#undef OFF
-    { NULL, 0, false }
-};
-#undef OFF
-
-/* Initialize all symbols.
- * Done only one time during the first initialisation */
-static bool
-InitSymbols(mc_api *api)
-{
-    static vlc_mutex_t lock = VLC_STATIC_MUTEX;
-    static int i_init_state = -1;
-    bool ret;
-
-    vlc_mutex_lock(&lock);
-
-    if (i_init_state != -1)
-        goto end;
-
-    i_init_state = 0;
-
-    void *ndk_handle = dlopen("libmediandk.so", RTLD_NOW);
-    if (!ndk_handle)
-        goto end;
-
-    for (int i = 0; members[i].name; i++)
-    {
-        void *sym = dlsym(ndk_handle, members[i].name);
-        if (!sym && members[i].critical)
-        {
-            dlclose(ndk_handle);
-            goto end;
-        }
-        *(void **)((uint8_t*)&syms + members[i].offset) = sym;
-    }
-
-    i_init_state = 1;
-end:
-    ret = i_init_state == 1;
-    if (!ret)
-        msg_Err(api->p_obj, "MediaCodec NDK init failed");
-
-    vlc_mutex_unlock(&lock);
-    return ret;
-}
-
 /****************************************************************************
  * Local prototypes
  ****************************************************************************/
@@ -251,7 +76,7 @@ static int ConfigureDecoder(mc_api *api, union mc_api_args *p_args)
 
     assert(api->psz_mime && api->psz_name);
 
-    p_sys->p_codec = syms.AMediaCodec.createCodecByName(api->psz_name);
+    p_sys->p_codec = AMediaCodec_createCodecByName(api->psz_name);
     if (!p_sys->p_codec)
     {
         msg_Err(api->p_obj, "AMediaCodec.createCodecByName for %s failed",
@@ -259,7 +84,7 @@ static int ConfigureDecoder(mc_api *api, union mc_api_args *p_args)
         return MC_API_ERROR;
     }
 
-    p_sys->p_format = syms.AMediaFormat.new();
+    p_sys->p_format = AMediaFormat_new();
     if (!p_sys->p_format)
     {
         msg_Err(api->p_obj, "AMediaFormat.new failed");
@@ -267,39 +92,39 @@ static int ConfigureDecoder(mc_api *api, union mc_api_args *p_args)
     }
 
     if (p_args->video.b_low_latency)
-        syms.AMediaFormat.setInt32(p_sys->p_format, "low-latency", 1);
-    syms.AMediaFormat.setInt32(p_sys->p_format, "encoder", 0);
-    syms.AMediaFormat.setString(p_sys->p_format, "mime", api->psz_mime);
+        AMediaFormat_setInt32(p_sys->p_format, "low-latency", 1);
+    AMediaFormat_setInt32(p_sys->p_format, "encoder", 0);
+    AMediaFormat_setString(p_sys->p_format, "mime", api->psz_mime);
     /* No limits for input size */
-    syms.AMediaFormat.setInt32(p_sys->p_format, "max-input-size", 0);
+    AMediaFormat_setInt32(p_sys->p_format, "max-input-size", 0);
     if (api->i_cat == VIDEO_ES)
     {
-        syms.AMediaFormat.setInt32(p_sys->p_format, "width", p_args->video.i_width);
-        syms.AMediaFormat.setInt32(p_sys->p_format, "height", p_args->video.i_height);
-        syms.AMediaFormat.setInt32(p_sys->p_format, "rotation-degrees", p_args->video.i_angle);
+        AMediaFormat_setInt32(p_sys->p_format, "width", p_args->video.i_width);
+        AMediaFormat_setInt32(p_sys->p_format, "height", p_args->video.i_height);
+        AMediaFormat_setInt32(p_sys->p_format, "rotation-degrees", p_args->video.i_angle);
 
-        syms.AMediaFormat.setInt32(p_sys->p_format, "color-range", p_args->video.color_range);
-        syms.AMediaFormat.setInt32(p_sys->p_format, "color-standard", p_args->video.color_standard);
-        syms.AMediaFormat.setInt32(p_sys->p_format, "color-transfer", p_args->video.color_transfer);
+        AMediaFormat_setInt32(p_sys->p_format, "color-range", p_args->video.color_range);
+        AMediaFormat_setInt32(p_sys->p_format, "color-standard", p_args->video.color_standard);
+        AMediaFormat_setInt32(p_sys->p_format, "color-transfer", p_args->video.color_transfer);
 
         if (p_args->video.p_surface)
         {
             p_anw = p_args->video.p_surface;
             if (p_args->video.b_tunneled_playback)
-                syms.AMediaFormat.setInt32(p_sys->p_format,
+                AMediaFormat_setInt32(p_sys->p_format,
                                            "feature-tunneled-playback", 1);
             if (p_args->video.b_adaptive_playback)
-                syms.AMediaFormat.setInt32(p_sys->p_format,
+                AMediaFormat_setInt32(p_sys->p_format,
                                            "feature-adaptive-playback", 1);
         }
     }
     else
     {
-        syms.AMediaFormat.setInt32(p_sys->p_format, "sample-rate", p_args->audio.i_sample_rate);
-        syms.AMediaFormat.setInt32(p_sys->p_format, "channel-count", p_args->audio.i_channel_count);
+        AMediaFormat_setInt32(p_sys->p_format, "sample-rate", p_args->audio.i_sample_rate);
+        AMediaFormat_setInt32(p_sys->p_format, "channel-count", p_args->audio.i_channel_count);
     }
 
-    if (syms.AMediaCodec.configure(p_sys->p_codec, p_sys->p_format,
+    if (AMediaCodec_configure(p_sys->p_codec, p_sys->p_format,
                                    p_anw, NULL, 0) != AMEDIA_OK)
     {
         msg_Err(api->p_obj, "AMediaCodec.configure failed");
@@ -324,15 +149,15 @@ static int Stop(mc_api *api)
     {
         if (api->b_started)
         {
-            syms.AMediaCodec.stop(p_sys->p_codec);
+            AMediaCodec_stop(p_sys->p_codec);
             api->b_started = false;
         }
-        syms.AMediaCodec.delete(p_sys->p_codec);
+        AMediaCodec_delete(p_sys->p_codec);
         p_sys->p_codec = NULL;
     }
     if (p_sys->p_format)
     {
-        syms.AMediaFormat.delete(p_sys->p_format);
+        AMediaFormat_delete(p_sys->p_format);
         p_sys->p_format = NULL;
     }
 
@@ -348,7 +173,7 @@ static int Start(mc_api *api)
     mc_api_sys *p_sys = api->p_sys;
     int i_ret = MC_API_ERROR;
 
-    if (syms.AMediaCodec.start(p_sys->p_codec) != AMEDIA_OK)
+    if (AMediaCodec_start(p_sys->p_codec) != AMEDIA_OK)
     {
         msg_Err(api->p_obj, "AMediaCodec.start failed");
         goto error;
@@ -371,7 +196,7 @@ static int Flush(mc_api *api)
 {
     mc_api_sys *p_sys = api->p_sys;
 
-    if (syms.AMediaCodec.flush(p_sys->p_codec) == AMEDIA_OK)
+    if (AMediaCodec_flush(p_sys->p_codec) == AMEDIA_OK)
         return 0;
     else
         return MC_API_ERROR;
@@ -385,7 +210,7 @@ static int DequeueInput(mc_api *api, vlc_tick_t i_timeout)
     mc_api_sys *p_sys = api->p_sys;
     ssize_t i_index;
 
-    i_index = syms.AMediaCodec.dequeueInputBuffer(p_sys->p_codec, i_timeout);
+    i_index = AMediaCodec_dequeueInputBuffer(p_sys->p_codec, i_timeout);
     if (i_index >= 0)
         return i_index;
     else if (i_index == AMEDIACODEC_INFO_TRY_AGAIN_LATER)
@@ -411,7 +236,7 @@ static int QueueInput(mc_api *api, int i_index, const void *p_buf,
 
     assert(i_index >= 0);
 
-    p_mc_buf = syms.AMediaCodec.getInputBuffer(p_sys->p_codec,
+    p_mc_buf = AMediaCodec_getInputBuffer(p_sys->p_codec,
                                                i_index, &i_mc_size);
     if (!p_mc_buf)
         return MC_API_ERROR;
@@ -420,7 +245,7 @@ static int QueueInput(mc_api *api, int i_index, const void *p_buf,
         i_mc_size = i_size;
     memcpy(p_mc_buf, p_buf, i_mc_size);
 
-    if (syms.AMediaCodec.queueInputBuffer(p_sys->p_codec, i_index, 0, i_mc_size,
+    if (AMediaCodec_queueInputBuffer(p_sys->p_codec, i_index, 0, i_mc_size,
                                           i_ts, i_flags) == AMEDIA_OK)
         return 0;
     else
@@ -433,7 +258,7 @@ static int QueueInput(mc_api *api, int i_index, const void *p_buf,
 static int32_t GetFormatInteger(AMediaFormat *p_format, const char *psz_name)
 {
     int32_t i_out = 0;
-    syms.AMediaFormat.getInt32(p_format, psz_name, &i_out);
+    AMediaFormat_getInt32(p_format, psz_name, &i_out);
     return i_out;
 }
 
@@ -445,7 +270,7 @@ static int DequeueOutput(mc_api *api, vlc_tick_t i_timeout)
     mc_api_sys *p_sys = api->p_sys;
     ssize_t i_index;
 
-    i_index = syms.AMediaCodec.dequeueOutputBuffer(p_sys->p_codec, &p_sys->info,
+    i_index = AMediaCodec_dequeueOutputBuffer(p_sys->p_codec, &p_sys->info,
                                                    i_timeout);
 
     if (i_index >= 0)
@@ -483,7 +308,7 @@ static int GetOutput(mc_api *api, int i_index, mc_api_out *p_out)
         else
         {
             size_t i_mc_size;
-            uint8_t *p_mc_buf = syms.AMediaCodec.getOutputBuffer(p_sys->p_codec,
+            uint8_t *p_mc_buf = AMediaCodec_getOutputBuffer(p_sys->p_codec,
                                                                  i_index,
                                                                  &i_mc_size);
             /* p_mc_buf can be NULL in case of EOS */
@@ -499,7 +324,7 @@ static int GetOutput(mc_api *api, int i_index, mc_api_out *p_out)
     }
     else if (i_index == MC_API_INFO_OUTPUT_FORMAT_CHANGED)
     {
-        AMediaFormat *format = syms.AMediaCodec.getOutputFormat(p_sys->p_codec);
+        AMediaFormat *format = AMediaCodec_getOutputFormat(p_sys->p_codec);
         if (unlikely(format == NULL))
             return MC_API_ERROR;
 
@@ -523,7 +348,7 @@ static int GetOutput(mc_api *api, int i_index, mc_api_out *p_out)
             p_out->conf.audio.channel_mask  = GetFormatInteger(format, "channel-mask");
             p_out->conf.audio.sample_rate   = GetFormatInteger(format, "sample-rate");
         }
-        syms.AMediaFormat.delete(format);
+        AMediaFormat_delete(format);
         return 1;
     }
     return 0;
@@ -537,7 +362,7 @@ static int ReleaseOutput(mc_api *api, int i_index, bool b_render)
     mc_api_sys *p_sys = api->p_sys;
 
     assert(i_index >= 0);
-    if (syms.AMediaCodec.releaseOutputBuffer(p_sys->p_codec, i_index, b_render)
+    if (AMediaCodec_releaseOutputBuffer(p_sys->p_codec, i_index, b_render)
                                              == AMEDIA_OK)
         return 0;
     else
@@ -552,25 +377,11 @@ static int ReleaseOutputAtTime(mc_api *api, int i_index, int64_t i_ts_ns)
     mc_api_sys *p_sys = api->p_sys;
 
     assert(i_index >= 0);
-    if (syms.AMediaCodec.releaseOutputBufferAtTime(p_sys->p_codec, i_index, i_ts_ns)
+    if (AMediaCodec_releaseOutputBufferAtTime(p_sys->p_codec, i_index, i_ts_ns)
                                                    == AMEDIA_OK)
         return 0;
     else
         return MC_API_ERROR;
-}
-
-/*****************************************************************************
- * SetOutputSurface
- *****************************************************************************/
-static int SetOutputSurface(mc_api *api, void *p_surface, void *p_jsurface)
-{
-    (void) p_jsurface;
-    assert(p_surface != NULL);
-    mc_api_sys *p_sys = api->p_sys;
-
-    return syms.AMediaCodec.setOutputSurface != NULL
-        && syms.AMediaCodec.setOutputSurface(p_sys->p_codec, p_surface)
-        == AMEDIA_OK ? 0 : MC_API_ERROR;
 }
 
 /*****************************************************************************
@@ -606,9 +417,6 @@ static int Prepare(mc_api * api, int i_profile)
  *****************************************************************************/
 int MediaCodecNdk_Init(mc_api *api)
 {
-    if (!InitSymbols(api))
-        return MC_API_ERROR;
-
     api->p_sys = calloc(1, sizeof(mc_api_sys));
     if (!api->p_sys)
         return MC_API_ERROR;
@@ -625,7 +433,6 @@ int MediaCodecNdk_Init(mc_api *api)
     api->get_out = GetOutput;
     api->release_out = ReleaseOutput;
     api->release_out_ts = ReleaseOutputAtTime;
-    api->set_output_surface = SetOutputSurface;
 
     api->b_support_rotation = true;
     return 0;

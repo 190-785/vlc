@@ -557,8 +557,9 @@ static int OpenInternal( qt_intf_t *p_intf )
         return VLC_EGENERIC;
 #endif
 
-#if (_POSIX_SPAWN >= 0)
+#if (_POSIX_SPAWN >= 0) && !defined(TARGET_OS_IPHONE)
     /* Check if QApplication works */
+    /* Note: Disabled on iOS/tvOS/visionOS as process spawning is not allowed */
     char *path = config_GetSysPath(VLC_PKG_LIBEXEC_DIR, "vlc-qt-check");
     if (unlikely(path == NULL))
         return VLC_ENOMEM;
@@ -1112,7 +1113,7 @@ static void *Thread( void *obj )
             app.installEventFilter(new DismissPopupEventFilter(&app));
         }
         else if( platform == QLatin1String("windows") || platform == QLatin1String("direct2d") ) { }
-        else if( platform == QLatin1String("cocoa") ) { }
+        else if( platform == QLatin1String("cocoa") || platform == QLatin1String("ios") ) { }
         else
         {
             msg_Err( p_intf, "unknown Qt platform: %s", qtu(platform) );

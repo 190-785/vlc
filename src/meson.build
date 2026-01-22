@@ -128,15 +128,20 @@ libvlccore_sources_base = files(
     'playlist/sort.c',
     'preparser/art.c',
     'preparser/art.h',
+    'preparser/external.c',
     'preparser/fetcher.c',
     'preparser/fetcher.h',
+    'preparser/ipc.c',
+    'preparser/internal.c',
     'preparser/preparser.c',
+    'preparser/preparser.h',
     'input/item.c',
     'input/access.c',
     'clock/clock_internal.c',
     'clock/input_clock.c',
     'clock/clock.c',
     'input/decoder.c',
+    'input/decoder_prevframe.c',
     'input/decoder_device.c',
     'input/decoder_helpers.c',
     'input/demux.c',
@@ -166,6 +171,7 @@ libvlccore_sources_base = files(
     'clock/clock.h',
     'clock/clock_internal.h',
     'input/decoder.h',
+    'input/decoder_prevframe.h',
     'input/demux.h',
     'input/es_out.h',
     'input/event.h',
@@ -328,6 +334,7 @@ if host_system == 'darwin'
     if have_osx
         libvlccore_sources += [
             'posix/spawn.c',
+            'posix/process.c',
         ]
     endif
 elif host_system == 'windows'
@@ -339,6 +346,7 @@ elif host_system == 'windows'
         'win32/rand.c',
         'win32/specific.c',
         'win32/thread.c',
+        'win32/process.c',
     ]
 
     if have_win_store
@@ -370,6 +378,7 @@ else
             'posix/picture.c',
             'posix/specific.c',
             'posix/thread.c',
+            'posix/process.c',
         ]
     endif
 

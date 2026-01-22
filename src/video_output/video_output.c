@@ -285,7 +285,10 @@ bool vout_IsEmpty(vout_thread_t *vout)
     assert(!sys->dummy);
     assert(sys->decoder_fifo);
 
-    return picture_fifo_IsEmpty(sys->decoder_fifo);
+    picture_fifo_Lock(sys->decoder_fifo);
+    bool empty = picture_fifo_IsEmpty(sys->decoder_fifo);
+    picture_fifo_Unlock(sys->decoder_fifo);
+    return empty;
 }
 
 void vout_DisplayTitle(vout_thread_t *vout, const char *title)
@@ -403,7 +406,9 @@ void vout_PutPicture(vout_thread_t *vout, picture_t *picture)
     vout_thread_sys_t *sys = VOUT_THREAD_TO_SYS(vout);
     assert(!sys->dummy);
     assert( !picture_HasChainedPics( picture ) );
+    picture_fifo_Lock(sys->decoder_fifo);
     picture_fifo_Push(sys->decoder_fifo, picture);
+    picture_fifo_Unlock(sys->decoder_fifo);
     vout_control_Wake(&sys->control);
 }
 
@@ -1069,7 +1074,9 @@ static picture_t *PreparePicture(vout_thread_sys_t *vout, bool reuse_decoded,
             if (decoded == NULL)
                 break;
         } else {
+            picture_fifo_Lock(sys->decoder_fifo);
             decoded = picture_fifo_Pop(sys->decoder_fifo);
+            picture_fifo_Unlock(sys->decoder_fifo);
             if (decoded == NULL)
                 break;
 
@@ -1400,7 +1407,15 @@ static int PrerenderPicture(vout_thread_sys_t *sys, picture_t *filtered,
     return VLC_SUCCESS;
 }
 
-static int RenderPicture(vout_thread_sys_t *sys, bool render_now)
+enum render_picture_type
+{
+    RENDER_PICTURE_NORMAL,
+    RENDER_PICTURE_FORCED,
+    RENDER_PICTURE_NEXT,
+};
+
+static int RenderPicture(vout_thread_sys_t *sys,
+                         enum render_picture_type render_type)
 {
     vout_display_t *vd = sys->display;
 
@@ -1423,6 +1438,8 @@ static int RenderPicture(vout_thread_sys_t *sys, bool render_now)
         vlc_queuedmutex_unlock(&sys->display_lock);
         return ret;
     }
+
+    bool render_now = render_type != RENDER_PICTURE_NORMAL;
 
     vlc_tick_t system_now = vlc_tick_now();
     const vlc_tick_t pts = todisplay->date;
@@ -1507,11 +1524,17 @@ static int RenderPicture(vout_thread_sys_t *sys, bool render_now)
         sys->displayed.date = system_now;
     }
 
+    /* Next frames should be updated as forced points */
+    if (render_type == RENDER_PICTURE_NEXT)
+        system_now = VLC_TICK_MAX;
+    else
+        system_now = vlc_tick_now();
+
     /* Display the direct buffer returned by vout_RenderPicture */
     vout_display_Display(vd, todisplay);
     vlc_clock_Lock(sys->clock);
     vlc_tick_t drift = vlc_clock_UpdateVideo(sys->clock,
-                                             vlc_tick_now(),
+                                             system_now,
                                              pts, sys->rate,
                                              frame_rate, frame_rate_base);
     vlc_clock_Unlock(sys->clock);
@@ -1563,7 +1586,7 @@ static int DisplayNextFrame(vout_thread_sys_t *sys)
     if (!next)
         return VLC_EGENERIC;
 
-    return RenderPicture(sys, true);
+    return RenderPicture(sys, RENDER_PICTURE_NEXT);
 }
 
 static bool UpdateCurrentPicture(vout_thread_sys_t *sys)
@@ -1592,7 +1615,9 @@ static bool UpdateCurrentPicture(vout_thread_sys_t *sys)
      * when the clock is configured. */
     if (sys->first_picture)
     {
+        picture_fifo_Lock(sys->decoder_fifo);
         bool has_next_pic = !picture_fifo_IsEmpty(sys->decoder_fifo);
+        picture_fifo_Unlock(sys->decoder_fifo);
         if (!has_next_pic)
             return false;
 
@@ -1643,7 +1668,8 @@ static vlc_tick_t DisplayPicture(vout_thread_sys_t *vout)
         // display forced picture immediately
         bool render_now = sys->displayed.current->b_force;
 
-        RenderPicture(vout, render_now);
+        RenderPicture(vout, render_now ? RENDER_PICTURE_FORCED
+                                       : RENDER_PICTURE_NORMAL);
         if (!render_now)
             /* Prepare the next picture immediately without waiting */
             return VLC_TICK_INVALID;
@@ -1652,7 +1678,7 @@ static vlc_tick_t DisplayPicture(vout_thread_sys_t *vout)
     {
         sys->wait_interrupted = false;
         if (likely(sys->displayed.current != NULL))
-            RenderPicture(vout, true);
+            RenderPicture(vout, RENDER_PICTURE_FORCED);
         return VLC_TICK_INVALID;
     }
     else if (likely(sys->displayed.date != VLC_TICK_INVALID))
@@ -1674,7 +1700,7 @@ static vlc_tick_t DisplayPicture(vout_thread_sys_t *vout)
             vlc_tick_t max_deadline = system_now + VOUT_REDISPLAY_DELAY;
             return __MIN(date_refresh, max_deadline);
         }
-        RenderPicture(vout, true);
+        RenderPicture(vout, RENDER_PICTURE_FORCED);
     }
 
     // wait until the next deadline or a control
@@ -1722,11 +1748,12 @@ static void vout_FlushUnlocked(vout_thread_sys_t *vout, bool below,
 
             sys->displayed.decoded   = NULL;
             sys->displayed.date      = VLC_TICK_INVALID;
-            sys->displayed.timestamp = VLC_TICK_INVALID;
         }
     }
 
+    picture_fifo_Lock(sys->decoder_fifo);
     picture_fifo_Flush(sys->decoder_fifo, date, below);
+    picture_fifo_Unlock(sys->decoder_fifo);
 
     vlc_queuedmutex_lock(&sys->display_lock);
     if (sys->display != NULL)
@@ -1745,30 +1772,41 @@ static void vout_FlushUnlocked(vout_thread_sys_t *vout, bool below,
     sys->first_picture = true;
 }
 
-void vout_Flush(vout_thread_t *vout, vlc_tick_t date)
+vlc_tick_t vout_Flush(vout_thread_t *vout, vlc_tick_t date)
 {
     vout_thread_sys_t *sys = VOUT_THREAD_TO_SYS(vout);
     assert(!sys->dummy);
 
     vout_control_Hold(&sys->control);
     vout_FlushUnlocked(sys, false, date);
+    vlc_tick_t displayed_pts = sys->displayed.timestamp;
     vout_control_Release(&sys->control);
 
     struct vlc_tracer *tracer = GetTracer(sys);
     if (tracer != NULL)
         vlc_tracer_TraceEvent(tracer, "RENDER", sys->str_id, "flushed");
+
+    return displayed_pts;
 }
 
-void vout_NextPicture(vout_thread_t *vout)
+size_t vout_NextPicture(vout_thread_t *vout, size_t request_frame_count)
 {
     vout_thread_sys_t *sys = VOUT_THREAD_TO_SYS(vout);
     assert(!sys->dummy);
 
     vout_control_Hold(&sys->control);
 
-    sys->frame_next_count++;
+    sys->frame_next_count += request_frame_count;
+
+    picture_fifo_Lock(sys->decoder_fifo);
+    size_t pics_count = picture_fifo_GetCount(sys->decoder_fifo);
+    size_t needed_count = sys->frame_next_count <= pics_count ? 0
+                        : sys->frame_next_count - pics_count;
+    picture_fifo_Unlock(sys->decoder_fifo);
 
     vout_control_ReleaseAndWake(&sys->control);
+
+    return needed_count;
 }
 
 void vout_ChangeDelay(vout_thread_t *vout, vlc_tick_t delay)

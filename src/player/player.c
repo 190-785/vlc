@@ -195,7 +195,7 @@ vlc_player_GetAtoBLoopDeadline(vlc_player_t *player)
 {
     struct vlc_player_input *input = vlc_player_get_input_locked(player);
 
-    if (!input || !input->abloop_state[0].set || !input->abloop_state[1].set)
+    if (!input || input->pause_date != VLC_TICK_INVALID || !input->abloop_state[0].set || !input->abloop_state[1].set)
         return VLC_TICK_MIN;
 
     vlc_tick_t now = vlc_tick_now();
@@ -1334,10 +1334,18 @@ vlc_player_NextVideoFrame(vlc_player_t *player)
     struct vlc_player_input *input = vlc_player_get_input_locked(player);
     if (!input)
         return;
-    int ret = input_ControlPushHelper(input->thread,
-                                      INPUT_CONTROL_SET_FRAME_NEXT, NULL);
-    if (ret == VLC_SUCCESS)
-        vlc_player_osd_Message(player, _("Next frame"));
+    input_ControlPushHelper(input->thread,
+                            INPUT_CONTROL_SET_FRAME_NEXT, NULL);
+}
+
+void
+vlc_player_PreviousVideoFrame(vlc_player_t *player)
+{
+    struct vlc_player_input *input = vlc_player_get_input_locked(player);
+    if (!input)
+        return;
+    input_ControlPushHelper(input->thread,
+                            INPUT_CONTROL_SET_FRAME_PREVIOUS, NULL);
 }
 
 enum vlc_player_state
@@ -1601,7 +1609,9 @@ vlc_player_SetAtoBLoopTime(vlc_player_t *player, vlc_tick_t a_time, vlc_tick_t b
     input->abloop_state[1].pos = 0;
     input->abloop_state[1].set = true;
 
-    vlc_player_SetTime(player, a_time);
+    vlc_tick_t current = vlc_player_input_GetTime(input, false, vlc_tick_now());
+    if (current == VLC_TICK_INVALID || current < a_time || current > b_time)
+        vlc_player_SetTime(player, a_time);
 
     vlc_player_SendEvent(player, on_atobloop_changed, VLC_PLAYER_ABLOOP_A, a_time, 0);
     vlc_player_SendEvent(player, on_atobloop_changed, VLC_PLAYER_ABLOOP_B, b_time, 0);
@@ -1629,7 +1639,9 @@ vlc_player_SetAtoBLoopPosition(vlc_player_t *player, double a_pos, double b_pos)
     input->abloop_state[1].pos = b_pos;
     input->abloop_state[1].set = true;
 
-    vlc_player_SetPosition(player, a_pos);
+    double current = vlc_player_input_GetPos(input, false, vlc_tick_now());
+    if (current < a_pos || current > b_pos)
+        vlc_player_SetPosition(player, a_pos);
 
     vlc_player_SendEvent(player, on_atobloop_changed, VLC_PLAYER_ABLOOP_A, VLC_TICK_INVALID, a_pos);
     vlc_player_SendEvent(player, on_atobloop_changed, VLC_PLAYER_ABLOOP_B, VLC_TICK_INVALID, b_pos);

@@ -9,7 +9,6 @@ OPTIONS="
       --enable-dvdnav
       --enable-sftp
       --enable-vcd
-      --enable-libcddb
       --enable-dvbpsi
       --enable-ogg
       --enable-mad
@@ -38,8 +37,8 @@ OPTIONS="
 "
 
 export ARCHFLAGS=${ARCHFLAGS-"-march=i686"}
-export CFLAGS="${CFLAGS} ${ARCHFLAGS} -std=gnu11"
-export CXXFLAGS="${CXXFLAGS} ${ARCHFLAGS} -std=gnu++11"
-export BUILDCC="gcc -std=gnu11"
+export CFLAGS="${CFLAGS} ${ARCHFLAGS} -std=gnu17"
+export CXXFLAGS="${CXXFLAGS} ${ARCHFLAGS} -std=gnu++17"
+export BUILDCC="gcc -std=gnu17"
 
 sh "$(dirname $0)"/../../../configure ${OPTIONS} "$@"

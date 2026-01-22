@@ -24,6 +24,7 @@
 
 #include <vlc_common.h>
 #include <vlc_memstream.h>
+#include <vlc_dialog.h>
 #include "player.h"
 
 struct vlc_player_track_priv *
@@ -295,6 +296,7 @@ vlc_player_input_HandleState(struct vlc_player_input *input,
             break;
         case VLC_PLAYER_STATE_PLAYING:
             input->pause_date = VLC_TICK_INVALID;
+            vlc_player_SignalAtoBLoop(player);
             vlc_player_UpdateTimerEvent(player, NULL,
                                         VLC_PLAYER_TIMER_EVENT_PLAYING,
                                         input->pause_date);
@@ -310,6 +312,7 @@ vlc_player_input_HandleState(struct vlc_player_input *input,
             assert(state_date != VLC_TICK_INVALID);
             input->pause_date = state_date;
 
+            vlc_player_SignalAtoBLoop(player);
             vlc_player_UpdateTimerEvent(player, NULL,
                                         VLC_PLAYER_TIMER_EVENT_PAUSED,
                                         input->pause_date);
@@ -878,6 +881,71 @@ vlc_player_input_MouseFallback(struct vlc_player_input *input)
     vlc_player_TogglePause(player);
 }
 
+static void
+vlc_player_DisplayFrameError(vlc_player_t *player,
+                             const char *title, const char *title_error,
+                             int status)
+{
+    static const char erange[] = {N_("can't seek back")};
+    static const char ebusy[] = {N_("no video found")};
+    static const char enotusp[] = {N_("can't pause/seek/pace")};
+    static const char einval[] = {N_("invalid state")};
+
+    switch (status)
+    {
+        case 0:
+            vlc_player_osd_Message(player, title);
+            break;
+        case -EAGAIN:
+            break;
+        case -ERANGE:
+            vlc_dialog_display_error(player, title_error, erange);
+            break;
+        case -EBUSY:
+            vlc_dialog_display_error(player, title_error, ebusy);
+            break;
+        case -ENOTSUP:
+            vlc_dialog_display_error(player, title_error, enotusp);
+            break;
+        default:
+        case -EINVAL:
+            vlc_dialog_display_error(player, title_error, einval);
+            break;
+    }
+}
+
+static void
+vlc_player_input_FrameNextStatus(struct vlc_player_input *input, int status)
+{
+    vlc_player_t *player = input->player;
+
+    unsigned count;
+    vlc_player_SendEventCount(player, on_next_frame_status, count, status);
+
+    /* Don't display errors if status is handled by the player user */
+    if (count != 0)
+        return;
+
+    vlc_player_DisplayFrameError(player, _("Next frame"),
+                                 _("Next frame error"), status);
+}
+
+static void
+vlc_player_input_FramePreviousStatus(struct vlc_player_input *input, int status)
+{
+    vlc_player_t *player = input->player;
+
+    unsigned count;
+    vlc_player_SendEventCount(player, on_prev_frame_status, count, status);
+
+    /* Don't display errors if status is handled by the player user */
+    if (count != 0)
+        return;
+
+    vlc_player_DisplayFrameError(player, _("Previous frame"),
+                                 _("Previous frame error"), status);
+}
+
 static bool
 input_thread_Events(input_thread_t *input_thread,
                     const struct vlc_input_event *event, void *user_data)
@@ -1049,6 +1117,12 @@ input_thread_Events(input_thread_t *input_thread,
         case INPUT_EVENT_VOUT:
             vlc_player_input_HandleVoutEvent(input, &event->vout);
             break;
+        case INPUT_EVENT_OUTPUT_STATE:
+            if (event->output_state.action == VLC_INPUT_EVENT_OUTPUT_STATE_PAUSED)
+                vlc_player_UpdateTimerEvent(player, event->output_state.id,
+                                            VLC_PLAYER_TIMER_EVENT_PAUSED,
+                                            event->output_state.paused_date);
+            break;
         case INPUT_EVENT_ITEM_META:
         case INPUT_EVENT_ITEM_INFO:
             vlc_player_SendEvent(player, on_media_meta_changed,
@@ -1093,6 +1167,14 @@ input_thread_Events(input_thread_t *input_thread,
             break;
         case INPUT_EVENT_MOUSE_LEFT:
             vlc_player_input_MouseFallback(input);
+            break;
+        case INPUT_EVENT_FRAME_NEXT_STATUS:
+            vlc_player_input_FrameNextStatus(input,
+                                             event->frame_next_status);
+            break;
+        case INPUT_EVENT_FRAME_PREVIOUS_STATUS:
+            vlc_player_input_FramePreviousStatus(input,
+                                                 event->frame_previous_status);
             break;
         default:
             handled = false;

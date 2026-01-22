@@ -281,6 +281,9 @@ input_thread_t * input_Create( vlc_object_t *p_parent, input_item_t *p_item,
     priv->b_out_pace_control = priv->type == INPUT_TYPE_THUMBNAILING;
     priv->p_renderer = cfg->renderer && priv->type == INPUT_TYPE_PLAYBACK ?
                 vlc_renderer_item_hold( cfg->renderer ) : NULL;
+    priv->prev_frame.enabled = priv->prev_frame.end = false;
+    priv->prev_frame.last_pts = VLC_TICK_INVALID;
+    priv->next_frame_need_data = false;
 
     priv->viewpoint_changed = false;
     /* Fetch the viewpoint from the mediaplayer or the playlist if any */
@@ -658,8 +661,12 @@ static void MainLoop( input_thread_t *p_input, bool b_interactive )
          * is paused -> this may cause problem with some of them
          * The same problem can be seen when seeking while paused */
         if( b_paused )
+        {
             b_paused = !es_out_GetBuffering( input_priv(p_input)->p_es_out )
                     || input_priv(p_input)->master->b_eof;
+            if( b_paused && input_priv(p_input)->next_frame_need_data )
+                b_paused = false;
+        }
 
         if( !b_paused )
         {
@@ -749,8 +756,12 @@ static void MainLoop( input_thread_t *p_input, bool b_interactive )
             }
 
             /* Update the wakeup time */
-            if( i_wakeup != 0 )
+            if( input_priv(p_input)->next_frame_need_data )
+                i_wakeup = 0;
+            else if( i_wakeup != 0 )
+            {
                 i_wakeup = es_out_GetWakeup( input_priv(p_input)->p_es_out );
+            }
         }
     }
 }
@@ -805,11 +816,10 @@ static void InitProperties( input_thread_t *input )
     assert(master);
 
     int capabilities = 0;
-    bool b_can_seek;
 
-    if( demux_Control( master->p_demux, DEMUX_CAN_SEEK, &b_can_seek ) )
-        b_can_seek = false;
-    if( b_can_seek )
+    if( demux_Control( master->p_demux, DEMUX_CAN_SEEK, &master->b_can_seek ) )
+        master->b_can_seek = false;
+    if( master->b_can_seek )
         capabilities |= VLC_INPUT_CAPABILITIES_SEEKABLE;
 
     if( master->b_can_pause || !master->b_can_pace_control )
@@ -1908,6 +1918,133 @@ static void ControlSetEsList(input_thread_t *input,
     free(array);
 }
 
+static int ControlSetTime( input_thread_t *p_input, vlc_tick_t val,
+                           bool fast_seek )
+{
+    input_thread_private_t *priv = input_priv(p_input);
+    int i_ret;
+
+    i_ret = demux_SetTime( priv->master->p_demux, priv->i_start + val,
+                           !fast_seek );
+    if( i_ret )
+    {
+        vlc_tick_t i_length = InputSourceGetLength( priv->master, priv->p_item, NULL );
+        /* Emulate it with a SET_POS */
+        if( i_length > 0 )
+        {
+            double f_pos = (double)(priv->i_start + val) / (double)i_length;
+            i_ret = demux_SetPosition( priv->master->p_demux, f_pos,
+                                       !fast_seek );
+        }
+    }
+
+    if( i_ret == VLC_SUCCESS )
+    {
+        if( priv->i_slave > 0 )
+            SlaveSeek( p_input );
+        priv->master->b_eof = false;
+    }
+
+    return i_ret;
+}
+
+static int ControlSetPosition( input_thread_t *p_input, double val,
+                               bool fast_seek )
+{
+    input_thread_private_t *priv = input_priv(p_input);
+
+    vlc_tick_t i_length = InputSourceGetLength(priv->master, priv->p_item, NULL);
+    if( i_length > 0 )
+    {
+        /* Calculate the updated position according to the current track duration */
+        if (priv->i_stop != 0)
+            val = (priv->i_start + val * (priv->i_stop - priv->i_start)) / i_length;
+        else
+            val = (priv->i_start + val * (i_length - priv->i_start)) / i_length;
+    }
+
+    int i_ret = demux_SetPosition( priv->master->p_demux, val, !fast_seek );
+
+    if( i_ret == VLC_SUCCESS )
+    {
+        if( priv->i_slave > 0 )
+            SlaveSeek( p_input );
+        priv->master->b_eof = false;
+    }
+
+    return i_ret;
+}
+
+static void
+ResetFramePrevious(input_thread_t *input)
+{
+    input_thread_private_t *priv = input_priv(input);
+    priv->prev_frame.enabled = priv->prev_frame.end = false;
+}
+
+/* Seek commands sent by the video decoder to reach the previous frame */
+static void SeekFramePrevious(input_thread_t *input, vlc_tick_t pts,
+                              unsigned frame_rate, unsigned frame_rate_base,
+                              int steps, bool failed)
+{
+    input_thread_private_t *priv = input_priv(input);
+    assert(priv->master->b_can_seek);
+
+    if (!priv->prev_frame.enabled)
+        return; /* prev-frame was canceled with a user seek */
+
+    assert(!priv->prev_frame.end);
+
+    float fps;
+    if (frame_rate == 0 || frame_rate_base == 0)
+        fps = 30; /* Assume a good default */
+    else
+        fps = ceil(frame_rate / (float) frame_rate_base);
+
+    /* pts is stream based, subtract normal time to seek */
+    pts -= priv->master->i_normal_time;
+    /* Seek a little back */
+    vlc_tick_t steps_duration = vlc_tick_rate_duration(fps) * steps;
+    pts -= steps_duration;
+
+    if (pts < VLC_TICK_0)
+        pts = VLC_TICK_0;
+
+    if (pts == priv->prev_frame.last_pts && failed)
+    {
+        priv->prev_frame.end = pts == VLC_TICK_0;
+        /* Either we reached start of file or the decoder asked to seek at the
+         * same pts (should not happen, this is  invalid). */
+        es_out_PrivControl(priv->p_es_out, ES_OUT_PRIV_RESET_PCR_FRAME_PREV,
+                           0);
+        input_SendEvent(input, &(struct vlc_input_event) {
+            .type = INPUT_EVENT_FRAME_PREVIOUS_STATUS,
+            .frame_previous_status = priv->prev_frame.end ? -EAGAIN : -EINVAL,
+        });
+        return;
+    }
+
+    priv->prev_frame.last_pts = pts;
+    vlc_tick_t buffering_duration = steps_duration;
+
+    /* Add an extra buffering, to add more chance to reach the previous-frame */
+    buffering_duration += vlc_tick_rate_duration(fps) * 5;
+
+    /* Reset the decoders states and clock sync but not the decoder requesting
+     * the seek */
+    es_out_PrivControl(priv->p_es_out, ES_OUT_PRIV_RESET_PCR_FRAME_PREV,
+                       buffering_duration);
+
+    int ret = ControlSetTime(input, pts, false);
+    if (ret == VLC_SUCCESS)
+        return; /* The decoder will send the status */
+
+    input_SendEvent(input, &(struct vlc_input_event) {
+            .type = INPUT_EVENT_FRAME_PREVIOUS_STATUS,
+            .frame_previous_status = -ENOTSUP,
+    });
+}
+
 static bool Control( input_thread_t *p_input,
                      int i_type, input_control_param_t param )
 {
@@ -1932,39 +2069,22 @@ static bool Control( input_thread_t *p_input,
 
             /* Reset the decoders states and clock sync (before calling the demuxer */
             es_out_Control(&priv->p_es_out->out, ES_OUT_RESET_PCR);
-            vlc_tick_t i_length = InputSourceGetLength(priv->master, priv->p_item, NULL);
-            double f_val;
-            if( i_length > 0 )
-            {
-                /* Calculate the updated position according to the current track duration */
-                if (priv->i_stop != 0)
-                    f_val = (priv->i_start + param.pos.f_val * (priv->i_stop - priv->i_start)) / i_length;
-                else
-                    f_val = (priv->i_start + param.pos.f_val * (i_length - priv->i_start)) / i_length;
-            }
-            else
-                f_val = param.pos.f_val;
-            if( demux_SetPosition( priv->master->p_demux, f_val,
-                                   !param.pos.b_fast_seek ) )
-            {
+            ResetFramePrevious( p_input );
+            priv->next_frame_need_data = false;
+
+            int i_ret = ControlSetPosition( p_input, param.pos.f_val,
+                                            param.pos.b_fast_seek );
+
+            if( i_ret )
                 msg_Err( p_input, "INPUT_CONTROL_SET_POSITION "
                          "%2.1f%% failed", param.pos.f_val * 100.f );
-            }
             else
-            {
-                if( priv->i_slave > 0 )
-                    SlaveSeek( p_input );
-                priv->master->b_eof = false;
-
                 b_force_update = true;
-            }
             break;
         }
 
         case INPUT_CONTROL_SET_TIME:
         {
-            int i_ret;
-
             if( priv->b_recording )
             {
                 msg_Err( p_input, "INPUT_CONTROL_SET_TIME ignored while recording" );
@@ -1973,33 +2093,17 @@ static bool Control( input_thread_t *p_input,
 
             /* Reset the decoders states and clock sync (before calling the demuxer */
             es_out_Control(&priv->p_es_out->out, ES_OUT_RESET_PCR);
+            ResetFramePrevious( p_input );
+            priv->next_frame_need_data = false;
 
-            i_ret = demux_SetTime( priv->master->p_demux, priv->i_start + param.time.i_val,
-                                   !param.time.b_fast_seek );
+            int i_ret = ControlSetTime( p_input, param.time.i_val,
+                                        param.time.b_fast_seek );
+
             if( i_ret )
-            {
-                vlc_tick_t i_length = InputSourceGetLength( priv->master, priv->p_item, NULL );
-                /* Emulate it with a SET_POS */
-                if( i_length > 0 )
-                {
-                    double f_pos = (double)(priv->i_start + param.time.i_val) / (double)i_length;
-                    i_ret = demux_SetPosition( priv->master->p_demux, f_pos,
-                                               !param.time.b_fast_seek );
-                }
-            }
-            if( i_ret )
-            {
                 msg_Warn( p_input, "INPUT_CONTROL_SET_TIME @%"PRId64
-                         " failed or not possible", param.time.i_val );
-            }
+                          " failed or not possible", param.time.i_val );
             else
-            {
-                if( priv->i_slave > 0 )
-                    SlaveSeek( p_input );
-                priv->master->b_eof = false;
-
                 b_force_update = true;
-            }
             break;
         }
 
@@ -2009,6 +2113,8 @@ static bool Control( input_thread_t *p_input,
                 case PLAYING_S:
                     if( priv->i_state == PAUSE_S )
                     {
+                        ResetFramePrevious( p_input );
+                        priv->next_frame_need_data = false;
                         ControlUnpause( p_input, i_control_date );
                         b_force_update = true;
                     }
@@ -2211,6 +2317,8 @@ static bool Control( input_thread_t *p_input,
                 break;
 
             es_out_Control(&priv->p_es_out->out, ES_OUT_RESET_PCR);
+            ResetFramePrevious( p_input );
+            priv->next_frame_need_data = false;
             demux_Control(priv->master->p_demux,
                           DEMUX_SET_TITLE, i_title);
             break;
@@ -2253,6 +2361,8 @@ static bool Control( input_thread_t *p_input,
                 break;
 
             es_out_Control(&priv->p_es_out->out, ES_OUT_RESET_PCR);
+            ResetFramePrevious( p_input );
+            priv->next_frame_need_data = false;
             demux_Control( priv->master->p_demux,
                            DEMUX_SET_SEEKPOINT, i_seekpoint );
             input_SendEventSeekpoint( p_input, i_title, i_seekpoint );
@@ -2316,21 +2426,88 @@ static bool Control( input_thread_t *p_input,
         }
 
         case INPUT_CONTROL_SET_FRAME_NEXT:
+            if (!priv->master->b_can_pause)
+            {
+                input_SendEvent(p_input, &(struct vlc_input_event) {
+                    .type = INPUT_EVENT_FRAME_NEXT_STATUS,
+                    .frame_next_status = -ENOTSUP,
+                });
+                break;
+            }
             if( priv->i_state == PAUSE_S )
             {
+                ResetFramePrevious( p_input );
                 es_out_SetFrameNext( priv->p_es_out );
             }
             else if( priv->i_state == PLAYING_S )
             {
                 ControlPause( p_input, i_control_date );
+                input_SendEvent(p_input, &(struct vlc_input_event) {
+                    .type = INPUT_EVENT_FRAME_NEXT_STATUS,
+                    .frame_next_status = -EAGAIN,
+                });
             }
             else
             {
-                msg_Err( p_input, "invalid state for frame next" );
+                input_SendEvent(p_input, &(struct vlc_input_event) {
+                    .type = INPUT_EVENT_FRAME_NEXT_STATUS,
+                    .frame_next_status = -EINVAL,
+                });
             }
             b_force_update = true;
             break;
-
+        case INPUT_CONTROL_SET_FRAME_PREVIOUS:
+            if (!priv->master->b_can_seek || !priv->master->b_can_pause
+             || !priv->master->b_can_pace_control)
+            {
+                input_SendEvent(p_input, &(struct vlc_input_event) {
+                    .type = INPUT_EVENT_FRAME_PREVIOUS_STATUS,
+                    .frame_previous_status = -ENOTSUP,
+                });
+                break;
+            }
+            if (priv->prev_frame.end)
+            {
+                input_SendEvent(p_input, &(struct vlc_input_event) {
+                    .type = INPUT_EVENT_FRAME_PREVIOUS_STATUS,
+                    .frame_previous_status = -EAGAIN,
+                });
+                break;
+            }
+            if( priv->i_state == PAUSE_S )
+            {
+                priv->prev_frame.last_pts = VLC_TICK_INVALID;
+                priv->prev_frame.enabled = true;
+                es_out_SetFramePrevious( priv->p_es_out );
+            }
+            else if( priv->i_state == PLAYING_S )
+            {
+                ControlPause( p_input, i_control_date );
+                input_SendEvent(p_input, &(struct vlc_input_event) {
+                    .type = INPUT_EVENT_FRAME_PREVIOUS_STATUS,
+                    .frame_next_status = -EAGAIN,
+                });
+            }
+            else
+            {
+                msg_Err( p_input, "invalid state for frame prev" );
+                input_SendEvent(p_input, &(struct vlc_input_event) {
+                    .type = INPUT_EVENT_FRAME_PREVIOUS_STATUS,
+                    .frame_previous_status = -EINVAL,
+                });
+            }
+            b_force_update = true;
+            break;
+        case INPUT_CONTROL_NEED_DATA_FRAME_NEXT:
+            priv->next_frame_need_data = param.val.b_bool;
+            break;
+        case INPUT_CONTROL_SEEK_FRAME_PREVIOUS:
+            SeekFramePrevious(p_input, param.frame_previous_seek.pts,
+                              param.frame_previous_seek.frame_rate,
+                              param.frame_previous_seek.frame_rate_base,
+                              param.frame_previous_seek.steps,
+                              param.frame_previous_seek.failed);
+            break;
         case INPUT_CONTROL_SET_RENDERER:
         {
             vlc_renderer_item_t *p_item = param.val.p_address;
